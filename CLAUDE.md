@@ -19,24 +19,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **核心约束**：STM32 是唯一主控制器，ESP32-CAM 不控制执行器。本地安全闭环必须能在无网络、无摄像头、无 AI 的情况下独立运行。
 
+## 仓库结构
+
+```
+stm32-ai-safety-monitor/
+├── README.md                    # 项目说明
+├── CLAUDE.md                    # Claude Code 指南
+├── docs/                        # 设计文档（14 个文档）
+├── firmware/                    # 固件代码
+│   ├── stm32/                   # STM32 固件
+│   └── esp32cam/                # ESP32-CAM 固件
+├── server/                      # 服务器端
+│   ├── backend/                 # 后端 API
+│   └── web-dashboard/           # Web 前端
+├── hardware/                    # 硬件资料
+│   ├── schematic/               # 原理图
+│   ├── wiring/                  # 接线图
+│   └── images/                  # 硬件图片
+├── tests/                       # 测试代码
+├── assets/                      # 资源文件
+│   ├── photos/                  # 项目照片
+│   ├── diagrams/                # 架构图
+│   └── demo/                    # 演示视频
+└── project/                     # 项目文档
+    ├── report/                  # 实训报告
+    ├── slides/                  # 答辩 PPT
+    └── submission/              # 上交材料
+```
+
 ## 文档结构
+
+所有设计文档位于 `docs/` 目录：
 
 | 文件 | 内容 |
 |---|---|
-| `00_README.md` | 项目总览、架构摘要、推荐阅读顺序 |
-| `01_项目立项与总体设计.md` | 项目定位、应用场景、创新点 |
-| `02_需求分析与功能优先级.md` | 功能需求、非功能需求、四层功能划分 |
-| `03_硬件系统设计与供电安全.md` | 引脚连接、供电拓扑、共地、安全注意事项 |
-| `04_软件架构与模块划分.md` | 裸机调度、模块分层、目录结构、关键结构体与伪代码 |
-| `05_开发计划与MVP验收标准.md` | MVP 验收标准、第一天/第三天里程碑 |
-| `06_状态机与联动机制.md` | 状态机、风险评分、传感器联动、执行器策略 |
-| `07_UART协议与JSON_Contract.md` | STM32↔ESP32-CAM UART 帧协议、ACK/NACK、心跳、错误码 |
-| `08_ESP32CAM抓拍_Web_服务器方案.md` | ESP32-CAM 抓拍、Web Dashboard、服务器 API、MQTT |
-| `09_云端AI多模态异常解释方案.md` | AI 输入输出 JSON、图像复核、降级策略 |
-| `10_MPU6050设备健康监测方案.md` | GY-521 震动检测算法（RMS、峰峰值） |
-| `11_测试计划与风险矩阵.md` | 单模块/集成/系统测试计划、风险矩阵 |
-| `12_材料清单与获取计划.md` | 物料清单、采购计划 |
-| `13_实训报告与答辩演示方案.md` | 报告结构、答辩演示脚本（3-5 分钟） |
+| `docs/00_README.md` | 项目总览、架构摘要、推荐阅读顺序 |
+| `docs/01_项目立项与总体设计.md` | 项目定位、应用场景、创新点 |
+| `docs/02_需求分析与功能优先级.md` | 功能需求、非功能需求、四层功能划分 |
+| `docs/03_硬件系统设计与供电安全.md` | 引脚连接、供电拓扑、共地、安全注意事项 |
+| `docs/04_软件架构与模块划分.md` | 裸机调度、模块分层、目录结构、关键结构体与伪代码 |
+| `docs/05_开发计划与MVP验收标准.md` | MVP 验收标准、第一天/第三天里程碑 |
+| `docs/06_状态机与联动机制.md` | 状态机、风险评分、传感器联动、执行器策略 |
+| `docs/07_UART协议与JSON_Contract.md` | STM32↔ESP32-CAM UART 帧协议、ACK/NACK、心跳、错误码 |
+| `docs/08_ESP32CAM抓拍_Web_服务器方案.md` | ESP32-CAM 抓拍、Web Dashboard、服务器 API、MQTT |
+| `docs/09_云端AI多模态异常解释方案.md` | AI 输入输出 JSON、图像复核、降级策略 |
+| `docs/10_MPU6050设备健康监测方案.md` | GY-521 震动检测算法（RMS、峰峰值） |
+| `docs/11_测试计划与风险矩阵.md` | 单模块/集成/系统测试计划、风险矩阵 |
+| `docs/12_材料清单与获取计划.md` | 物料清单、采购计划 |
+| `docs/13_实训报告与答辩演示方案.md` | 报告结构、答辩演示脚本（3-5 分钟） |
+| `docs/14_上报表内容与答辩摘要.md` | 上报表内容、答辩摘要 |
 
 ## 关键技术细节
 
@@ -57,24 +88,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 水泵软件限时：喷淋 1-3 秒，冷却 10 秒以上
 - ESP32-CAM 需独立 5V 支路（Wi-Fi 和拍照峰值电流大）
 
-### 计划目录结构
+### 固件目录结构（开发时使用）
+
+**STM32 固件**（`firmware/stm32/`）：
 ```
-STM32_Project/
+firmware/stm32/
 ├─ BSP/          （bsp_gpio、bsp_adc、bsp_i2c、bsp_usart、bsp_timer、bsp_pwm）
 ├─ Drivers/      （driver_oled、driver_dht、driver_mq2、driver_mpu6050、driver_buzzer、driver_rgb）
 ├─ App/          （app_main、sensor_manager、risk_engine、state_machine、actuator_manager、fault_manager、log_manager、config_manager、ui_manager）
 ├─ Protocol/     （protocol_frame、comm_esp32cam）
 └─ Config/       （app_config.h）
+```
 
-ESP32CAM_Project/
+**ESP32-CAM 固件**（`firmware/esp32cam/`）：
+```
+firmware/esp32cam/
 ├─ main/         （main、camera_ctrl、uart_protocol、web_server、upload_client、ai_client）
 └─ CMakeLists.txt
+```
 
-Server/
-├─ server.py     （Flask/FastAPI 主程序）
-├─ ai_proxy.py   （云端 AI 请求中转）
-├─ templates/    （dashboard.html）
-├─ static/       （style.css、app.js）
+**服务器端**（`server/`）：
+```
+server/
+├─ backend/      （Flask/FastAPI 主程序、ai_proxy.py）
+├─ web-dashboard/（dashboard.html、style.css、app.js）
 └─ uploads/      （事件图片存储）
 ```
 
