@@ -121,6 +121,36 @@ AI  : UNAVAILABLE
 
 ---
 
+## 阶段 0：最小工程验证
+
+该阶段在 P0 第 1 天正式接入传感器和状态机之前完成，只验证 CubeMX 工程链路可用。
+
+### CubeMX 建工程 12 步
+
+1. 新建 STM32CubeMX 工程，选择芯片 `STM32F103C8T6`。
+2. 配置系统时钟，优先使用外部晶振 HSE；无外部晶振时使用 HSI。
+3. 启用 `SYS`，调试接口选择 `Serial Wire`。
+4. 配置基础 LED GPIO 为推挽输出。
+5. 配置按键、门磁、PIR、火焰等 GPIO 输入，必须设置 Pull-up 或 Pull-down，禁止浮空。
+6. 配置 USART1 作为调试串口，开启 TX/RX。
+7. 配置 I2C 接口用于 OLED 和 MPU6050。
+8. 配置 ADC 通道用于 MQ-2 AO。
+9. 配置 TIM/PWM 用于蜂鸣器、RGB 或风扇控制。
+10. 在 Project Manager 中选择 Keil MDK-ARM 工程，配置工程名和输出目录。
+11. 生成代码后，只在 `USER CODE BEGIN` / `USER CODE END` 区域添加自定义代码。
+12. 用 Keil 编译、下载，先验证 LED 闪烁和串口启动日志。
+
+### 验收标准
+
+| 验收项 | 标准 |
+|---|---|
+| 编译通过 | Keil 无编译错误，关键警告已确认 |
+| 下载成功 | ST-Link 能下载到 STM32F103C8T6，复位后程序运行 |
+| LED 闪烁 | LED 按固定周期闪烁，可证明主循环和 HAL Tick 正常 |
+| USER CODE 不丢失 | 重新用 CubeMX 生成代码后，自定义代码仍保留 |
+
+---
+
 ## 5.8 第 1 天必须验证
 
 | 验证项 | 验收标准 |
