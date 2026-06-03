@@ -20,9 +20,47 @@
 | P0-01 | USART1 串口日志输出 | 暂缓 | USB-TTL 未到货；计划使用 PA9/PA10；当前依赖 PC13 LED 和 Keil Debug Watch |
 | P0-02 | AD 四位按键输入验证 | 已完成 | AD 接 PA0/ADC1_IN0；ADC1 软件触发、单通道、轮询读取；K1-K4 阈值已实测 |
 | P0-03 | 蜂鸣器 / RGB LED 输出验证 | 已完成 | PB5 蜂鸣器低电平触发；PB0/PB1/PB10 分别控制 RGB R/G/B |
-| P0-04 | 传感器输入验证 | 下一步 | 建议优先火焰 DO、PIR、门磁、MQ-2 AO |
+| P0-04A-1 | OLED 固定文本显示 | 已完成 | I2C1 PB6/PB7，地址 0x3C |
+| P0-04A-2 | OLED 实时调试页面 | 已完成 | 显示 KEY ADC、KEY ID、FLAME、PIR、MQ2、STATE |
+| P0-04B-0 | 火焰传感器 DO 输入 | 部分完成 | PB12 / FLAME_DO；无火焰状态显示正常，真实触发待安全补测 |
+| P0-04B-1 | PIR HC-SR501 输入 | 已完成 | PB15 / PIR_DO 已通过；PB13 原方案输入链路不可靠，不再作为 PIR 默认引脚 |
+| P0-04B-2 | MQ-2 DO 输入 | 软件链路通过，实物暂缓 | PB14 / MQ2_DO 模拟通过；MQ-2 实物 DO/AO 待 10k/20k 分压电阻 |
+| P0-04B-3 | MQ-2 AO 输入 | 未开始 | 后续 PA1 / ADC1_IN1；5V 供电时必须分压 |
+| P0-05 | 继电器 / 风扇 / 水泵低压驱动 | 未开始 | 需外部电源和 MOS/驱动模块 |
+| P0-06 | risk_score 风险评分 | 未开始 | 待输入输出链路稳定后实现 |
+| P0-07 | safety_fsm 状态机 | 未开始 | 待 risk_score |
+| P0-08 | 按键功能映射 | 未开始 | P0-02 仅完成 AD 按键识别 |
+| P0-09 | P0 本地闭环整体验收 | 未开始 | 不依赖 ESP32-CAM/Web/服务器/AI |
 
-当前 P0 阶段使用面包板分配 3.3V/GND。ST-Link 3.3V 只适合 STM32 和小功耗模块 bring-up；后续 ESP32-CAM、继电器、风扇、水泵必须独立供电并通过驱动模块控制。
+当前 P0 阶段使用面包板分配 3.3V/5V 分轨并统一共地。ST-Link 3.3V 只适合 STM32 和少量小功耗模块临时 bring-up；MQ-2、ESP32-CAM、继电器、风扇、水泵不得从 ST-Link 3.3V 取电。若 STM32 已由手机 Type-C 充电器经核心板 Type-C 供电，则 ST-Link 只接 SWDIO/SWCLK/GND，不接 ST-Link 3.3V。12V 适配器/电池不得直接接 STM32、OLED、PIR、MQ-2。
+
+## 当前 P0 OLED 模块
+
+已新增：
+
+```text
+Core/Inc/bsp_oled.h
+Core/Src/bsp_oled.c
+Core/Inc/app_display.h
+Core/Src/app_display.c
+```
+
+`bsp_oled` 是 SSD1306 OLED BSP 驱动，负责初始化、清屏、写字符、写字符串、刷新显示；使用 `I2C1`，`PB6=SCL`，`PB7=SDA`，地址 `0x3C`。
+
+`app_display` 是 P0 调试显示页面，负责显示 `KEY ADC`、`KEY ID`、`FLAME`、`PIR`、`MQ2`、`STATE`。它不直接读取传感器，不直接控制执行器。
+
+当前 OLED 显示页面大致为：
+
+```text
+Safety Monitor
+P0 Debug Page
+
+KEY ADC:xxxx
+KEY ID :NONE/K1/K2/K3/K4
+FLAME  :0/1
+PIR:0 MQ2:0
+STATE  :IDLE/PIR/SMOKE/ALARM
+```
 
 ## CubeMX 建工程步骤
 
@@ -56,9 +94,10 @@
 2. 串口：输出启动日志和周期心跳。暂缓，待 USB-TTL 到货。
 3. 按键：AD 四位按键接 PA0/ADC1_IN0，验证短按和消抖。已完成输入识别。
 4. 蜂鸣器/RGB：验证 PB5、PB0、PB1、PB10 输出。已完成。
-5. 传感器：下一步进入 P0-04，依次接入火焰、PIR、门磁、MQ-2、DHT、MPU6050。
-6. OLED：显示项目名、状态和基础传感器字段。
-7. 状态机：接入风险评分、报警分级、声光和执行器联动。
+5. OLED：已提前到 P0-04A，完成固定文本和实时调试页面。
+6. 传感器：火焰 PB12 无火焰状态正常、PIR PB15 已通过、MQ-2 DO PB14 软件链路通过；MQ-2 实物和 AO 待分压电阻。
+7. 执行器：P0-05 进入继电器/风扇/水泵低压驱动验证。
+8. 状态机：后续接入风险评分、报警分级、声光和执行器联动。
 
 ## GPIO 输入要求
 
