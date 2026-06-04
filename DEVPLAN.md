@@ -387,6 +387,17 @@ v5：STM32 根据门磁/PIR/火焰/MQ2 发送真实事件
 - [ ] ESP32-CAM 不修改传感器/执行器判断结果，只转发。
 - [ ] 服务器收到的字段与统一 JSON Contract 一致。
 
+### Task 04 当前实现计划记录
+
+- [x] STM32 已由用户通过 CubeMX 启用 USART2：PA2=TX、PA3=RX、115200 8N1，并已 Generate Code。
+- [x] STM32 新增 `app_comm.h/c`，通过 `HAL_UART_Transmit()` 每 3 秒发送固定 `STM32_TEST` JSON，帧尾为 `\n`。
+- [x] ESP32-CAM 新增 UART 按行读取，简单校验 `{...}` 后原样 POST 到 Flask `/api/events`。
+- [ ] Keil 中手动加入 `Core/Src/app_comm.c` 后 Rebuild。
+- [ ] PlatformIO 重新烧录 ESP32-CAM。
+- [ ] PA2 → ESP32-CAM RX、GND ↔ GND 接线后实测 Flask `201` 和 Dashboard `STM32_TEST`。
+
+限制：本任务不做抓拍、不上传图片、不做 AI 解释，不实现 `risk_score` / `safety_fsm`，不让 ESP32-CAM 控制任何本地执行器。
+
 ---
 
 ## 11. 阶段 6：第一个垂直切片推荐 PA4 门磁 DOOR（1 天）

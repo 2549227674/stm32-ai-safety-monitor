@@ -21,6 +21,7 @@
 | P0-07 | safety_fsm 状态机 | 未开始 | 软件模块 | 未测试 | 待 risk_score | 不依赖 ESP32-CAM/Web/AI |
 | P0-08 | 按键功能映射 | 未开始 | PA0 AD 按键业务逻辑 | 未测试 | 待状态机接入 | P0-02 仅完成 ADC 识别 |
 | P0-09 | P0 本地闭环整体验收 | 未开始 | STM32 本地闭环 | 未测试 | 待 P0-05~P0-08 | 不接 ESP32-CAM 也必须独立演示 |
+| Stage 5 / Task 04 | STM32 → ESP32-CAM UART 桥接 | 代码已准备，待联调 | USART2：PA2 TX、PA3 RX，115200 8N1 | 待 Keil 编译、烧录、接线和 Dashboard 验收 | 尚未实测通过 | 第一版固定发送 `STM32_TEST` JSON，不启用 DHT11、不做抓拍、不做 AI |
 
 ## AD 按键阈值记录
 
@@ -99,3 +100,30 @@ STATE  :IDLE/PIR/SMOKE/ALARM
 ```
 
 `app_display` 只负责显示 P0 调试数据，不直接读取传感器，不直接控制执行器。
+
+## Stage 5 / Task 04 UART 桥接待测记录
+
+### 当前代码状态
+
+- CubeMX 已由用户启用 USART2：PA2=TX、PA3=RX、115200 8N1。
+- STM32 新增 `app_comm.h/c`，通过 `HAL_UART_Transmit()` 发送固定 `STM32_TEST` JSON，帧尾为 `\n`。
+- `main.c` 每 3 秒发送一次测试事件。
+- 本轮不启用 DHT11，不实现 `risk_score` / `safety_fsm`，不控制新增执行器。
+
+### 待验证接线
+
+```text
+STM32 PA2 / USART2_TX -> ESP32-CAM RX
+STM32 PA3 / USART2_RX <- ESP32-CAM TX，可选预留
+STM32 GND             <-> ESP32-CAM GND
+ESP32-CAM             -> USB 烧录底座供电
+```
+
+不要用 STM32 3.3V 或 ST-Link 3.3V 给 ESP32-CAM 供电。
+
+### 待验收现象
+
+- Flask 日志出现 `POST /api/events HTTP/1.1 201`。
+- Dashboard 显示 `state=STM32_TEST`、`risk_score=0`、`device_id=labbox_001`。
+- `seq` 由 STM32 递增。
+- 仍无抓拍、无图片上传、无 AI 解释。

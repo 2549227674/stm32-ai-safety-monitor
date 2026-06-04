@@ -74,5 +74,5 @@
 ## 下一步
 
 按 DEVPLAN 顺序，下一步可选：
-- **阶段 5**：STM32 → ESP32-CAM UART 桥接（需 STM32 USART2 输出 JSON，ESP32-CAM 转发）
+- **阶段 5**：STM32 → ESP32-CAM UART 桥接（需 STM32 USART2 输出 JSON，ESP32-CAM 转发）。Task 04 计划和待测记录见 `tests/stm32_esp32cam_uart_bridge_record.md`。
 - **或回到 P0-06**：risk_score 风险评分模块实现（不依赖 ESP32-CAM）

@@ -31,6 +31,7 @@
 | P0-07 | safety_fsm 状态机 | 未开始 | 待 risk_score |
 | P0-08 | 按键功能映射 | 未开始 | P0-02 仅完成 AD 按键识别 |
 | P0-09 | P0 本地闭环整体验收 | 未开始 | 不依赖 ESP32-CAM/Web/服务器/AI |
+| Stage 5 / Task 04 | USART2 → ESP32-CAM UART 桥接 | 代码已准备，待联调 | PA2=USART2_TX、PA3=USART2_RX，115200 8N1；当前只发送固定 `STM32_TEST` JSON |
 
 当前 P0 阶段使用面包板分配 3.3V/5V 分轨并统一共地。ST-Link 3.3V 只适合 STM32 和少量小功耗模块临时 bring-up；MQ-2、ESP32-CAM、继电器、风扇、水泵不得从 ST-Link 3.3V 取电。若 STM32 已由手机 Type-C 充电器经核心板 Type-C 供电，则 ST-Link 只接 SWDIO/SWCLK/GND，不接 ST-Link 3.3V。12V 适配器/电池不得直接接 STM32、OLED、PIR、MQ-2。
 
@@ -48,6 +49,38 @@ Core/Src/app_display.c
 `bsp_oled` 是 SSD1306 OLED BSP 驱动，负责初始化、清屏、写字符、写字符串、刷新显示；使用 `I2C1`，`PB6=SCL`，`PB7=SDA`，地址 `0x3C`。
 
 `app_display` 是 P0 调试显示页面，负责显示 `KEY ADC`、`KEY ID`、`FLAME`、`PIR`、`MQ2`、`STATE`。它不直接读取传感器，不直接控制执行器。
+
+## Stage 5 / Task 04 UART 桥接代码
+
+当前新增：
+
+```text
+Core/Inc/app_comm.h
+Core/Src/app_comm.c
+```
+
+`app_comm` 只负责组装固定 `STM32_TEST` 事件 JSON，并通过 `USART2` 发送给 ESP32-CAM。每帧以 `\n` 结尾，第一版不读取 GPIO、不控制执行器、不实现 `risk_score` 或 `safety_fsm`，也不启用 DHT11。
+
+USART2 配置由用户通过 CubeMX 生成：
+
+```text
+PA2 = USART2_TX
+PA3 = USART2_RX
+115200 8N1
+```
+
+`main.c` 当前每 3 秒调用一次 `AppComm_SendStm32Test()`。Keil 编译前需要在工程中手动加入 `Core/Src/app_comm.c`。
+
+最小接线：
+
+```text
+STM32 PA2 / USART2_TX -> ESP32-CAM RX
+STM32 PA3 / USART2_RX <- ESP32-CAM TX，可选预留
+STM32 GND             <-> ESP32-CAM GND
+ESP32-CAM 继续使用 USB 烧录底座供电
+```
+
+不要用 STM32 3.3V 或 ST-Link 3.3V 给 ESP32-CAM 供电。
 
 当前 OLED 显示页面大致为：
 

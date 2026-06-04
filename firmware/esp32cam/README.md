@@ -1,18 +1,21 @@
-# ESP32-CAM WiFi HTTP Test Firmware
+# ESP32-CAM UART 桥接固件
 
-Stage 4 only verifies ESP32-CAM networking. It does not connect to STM32, does not use UART, does not take photos, does not use microSD, and does not control relays, fans, pumps, buzzers, RGB LEDs, or any other local actuator.
+阶段 5 / Task 04 实现最小 STM32 -> ESP32-CAM UART 桥接。ESP32-CAM 从 STM32 接收一行 JSON，做最小 `{...}` 行校验，然后把该 JSON 原样作为 HTTP body POST 到 Flask `/api/events`。
 
-Use the ESP32-CAM + camera + USB flashing base kit only for USB power, serial download, and serial logs in this first version. Do not connect STM32, sensors, 12V power, relay boards, fan, or pump.
+本任务中 ESP32-CAM 仍然只是 WiFi/HTTP 转发协处理模块。它不抓拍、不上传图片、不运行 AI，也不控制继电器、风扇、水泵、蜂鸣器、RGB LED 或任何本地执行器。
 
-## What It Does
+## 功能
 
-- Connects to WiFi.
-- Sends one fixed `TEST` event to Flask every 5 seconds.
-- Prints WiFi status, ESP32-CAM IP, server URL, HTTP response code, and error messages on Serial at 115200.
-- Retries WiFi when disconnected.
-- Times out HTTP operations so an unreachable server does not block the main loop forever.
+- 连接 WiFi。
+- 按行读取 STM32 UART JSON 帧，帧尾为 `\n`。
+- 丢弃不以 `{` 开头或不以 `}` 结尾的行。
+- 将 STM32 JSON 原样 POST 到 Flask `/api/events`。
+- 在 Serial 115200 输出 WiFi 状态、ESP32-CAM IP、服务器 URL、HTTP 响应码和错误信息。
+- WiFi 断开后自动重连。
+- HTTP 操作设置超时，避免服务器不可达时长期阻塞主循环。
+- 保留阶段 4 的周期性 `TEST` 事件路径，但默认通过 `ENABLE_PERIODIC_TEST_EVENT=0` 关闭。
 
-## Files
+## 文件
 
 ```text
 firmware/esp32cam/
@@ -24,33 +27,33 @@ firmware/esp32cam/
 └── README.md
 ```
 
-`include/config.h` is ignored by Git because it may contain real WiFi credentials. If it is ever tracked by mistake, run:
+`include/config.h` 被 Git 忽略，因为它可能包含真实 WiFi 密码。如果它被误提交，执行：
 
 ```bash
 git rm --cached firmware/esp32cam/include/config.h
 ```
 
-## Install PlatformIO
+## 安装 PlatformIO
 
-Recommended options:
+推荐方式：
 
-- VS Code + PlatformIO IDE extension.
-- PlatformIO Core:
+- VS Code + PlatformIO IDE 扩展。
+- PlatformIO Core：
 
 ```bash
 python -m pip install platformio
 ```
 
-## Configure WiFi and Flask Server
+## 配置 WiFi 和 Flask 服务器
 
-Create local config if needed:
+如本地还没有配置文件：
 
 ```bash
 cd firmware/esp32cam
 cp include/config.example.h include/config.h
 ```
 
-Edit `include/config.h`:
+编辑 `include/config.h`：
 
 ```text
 WIFI_SSID
@@ -59,44 +62,51 @@ SERVER_HOST
 SERVER_PORT
 ```
 
-`SERVER_HOST` must be the computer/server LAN IPv4 address, for example `192.168.1.100`. Do not use `localhost`, because on ESP32-CAM it means the ESP32-CAM itself, not your PC.
+`SERVER_HOST` 必须填写电脑/服务器在局域网内的 IPv4 地址，例如 `192.168.1.100`。不要填 `localhost`，因为在 ESP32-CAM 上 `localhost` 指 ESP32-CAM 自己，不是电脑。
 
-Keep:
+Task 04 UART 桥接模式建议保持：
 
 ```text
 API_ENDPOINT = "/api/events"
 HEALTH_ENDPOINT = "/health"
 DEVICE_ID = "labbox_001"
-POST_INTERVAL_MS = 5000
+ENABLE_PERIODIC_TEST_EVENT = 0
+STM32_UART_BAUD = 115200
+STM32_UART_RX_PIN = 13
+STM32_UART_TX_PIN = 14
 ```
 
-## Start Flask First
+`STM32_UART_RX_PIN` 是 ESP32-CAM 上连接 STM32 `PA2 / USART2_TX` 的 RX 引脚。默认使用 GPIO13，因为本任务不使用 microSD。如果你的 ESP32-CAM 底板实际暴露了其他更合适的 RX 引脚，只修改本地 `include/config.h`。
 
-From the repository root:
+只有在复测阶段 4 的 ESP32-CAM 单独 HTTP 测试时，才把 `ENABLE_PERIODIC_TEST_EVENT` 设为 `1`。Task 04 UART 桥接验收时保持 `0`。
+
+## 先启动 Flask
+
+从仓库根目录执行：
 
 ```bash
 cd server/backend
 python app.py
 ```
 
-Confirm from the PC:
+在电脑本机确认：
 
 ```bash
 curl http://localhost:5000/health
 ```
 
-For ESP32-CAM access, use:
+ESP32-CAM 访问时使用：
 
 ```text
 http://<your-pc-lan-ip>:5000/health
 http://<your-pc-lan-ip>:5000/api/events
 ```
 
-Make sure Flask listens on `0.0.0.0:5000` and that the firewall allows inbound TCP port `5000`.
+确认 Flask 监听 `0.0.0.0:5000`，并且防火墙允许局域网访问 TCP 端口 `5000`。
 
-## Build, Upload, Monitor
+## 构建、烧录和监视
 
-Plug the ESP32-CAM into the USB flashing base, connect the base to the PC with USB, then run:
+将 ESP32-CAM 插入 USB 烧录底座，并用 USB 连接电脑，然后执行：
 
 ```bash
 cd firmware/esp32cam
@@ -105,7 +115,7 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-If multiple serial ports exist, list them and specify the upload port:
+如果有多个串口，先列出设备，再指定端口：
 
 ```bash
 pio device list
@@ -113,44 +123,58 @@ pio run -t upload --upload-port COM5
 pio device monitor -b 115200 --port COM5
 ```
 
-On Linux/macOS the port may look like `/dev/ttyUSB0` or `/dev/cu.usbserial-*`.
+Linux/macOS 下端口可能类似 `/dev/ttyUSB0` 或 `/dev/cu.usbserial-*`。
 
-## Manual Flashing Notes
+阶段 4 中当前硬件的 Serial Monitor 输出曾异常。因此 Task 04 的验收以 Flask `201` 和 Dashboard 显示 `STM32_TEST` 为准，Serial Monitor 只作为辅助信息。
 
-Most ESP32-CAM USB bases support automatic download mode. If upload fails:
-
-- Check that the serial port is detected.
-- Try another USB cable or USB port.
-- Lower `upload_speed` in `platformio.ini` from `921600` to `115200`.
-- Check whether the base supports automatic download.
-- If there is no automatic download, connect `IO0` to `GND`, press reset, upload, then remove `IO0` from `GND` and reset again to run.
-- If you see brownout or repeated resets, the ESP32-CAM power supply may be insufficient.
-
-## Serial Output Example
+## UART 接线
 
 ```text
-=== ESP32-CAM Safety Monitor HTTP Test ===
-[mode] stage 4: WiFi + HTTP TEST event only
-[mode] no camera, no UART, no local actuators
+STM32 PA2 / USART2_TX -> ESP32-CAM RX configured by STM32_UART_RX_PIN
+STM32 PA3 / USART2_RX <- ESP32-CAM TX configured by STM32_UART_TX_PIN，可选预留
+STM32 GND             <-> ESP32-CAM GND
+ESP32-CAM             -> USB 烧录底座供电
+```
+
+不要用 STM32 3.3V 或 ST-Link 3.3V 给 ESP32-CAM 供电。STM32F103 和 ESP32-CAM UART 都是 3.3V TTL，不要在这条链路中接入 5V UART。
+
+## 手动烧录注意事项
+
+多数 ESP32-CAM USB 烧录底座支持自动下载模式。如果上传失败：
+
+- 确认串口设备能被电脑识别。
+- 尝试更换 USB 数据线或 USB 口。
+- 将 `platformio.ini` 中的 `upload_speed` 从 `921600` 降到 `115200`。
+- 确认烧录底座是否支持自动下载。
+- 如果没有自动下载，先连接 `IO0` 到 `GND`，按 reset 后上传；上传完成后断开 `IO0` 与 `GND`，再 reset 运行。
+- 如果出现 brownout 或反复复位，说明 ESP32-CAM 供电可能不足。
+
+## 串口输出示例
+
+```text
+=== ESP32-CAM Safety Monitor UART Bridge ===
+[mode] stage 5: STM32 UART JSON -> HTTP event
+[mode] no camera, no image upload, no local actuators
 [server] http://192.168.1.100:5000/api/events
 [health] http://192.168.1.100:5000/health
+[uart] rx_pin=13 tx_pin=14 baud=115200
 [wifi] disconnected, connecting...
 [wifi] connected, ip=192.168.1.88, rssi=-52 dBm
+[uart] forward line len=245
 [post] url=http://192.168.1.100:5000/api/events
-[post] seq=1 payload={"type":"event",...}
 [post] http_code=201 body={"event_id":1,"ok":true,...}
 ```
 
-## Event JSON
+## 事件 JSON
 
-The firmware sends this shape every 5 seconds:
+Task 04 中 STM32 每 3 秒发送以下结构，ESP32-CAM 不修改 body，只负责转发：
 
 ```json
 {
   "type": "event",
   "device_id": "labbox_001",
   "seq": 1,
-  "state": "TEST",
+  "state": "STM32_TEST",
   "risk_score": 0,
   "need_snap": false,
   "sensors": {"door": 0, "pir": 0, "flame": 0, "mq2": 0},
@@ -158,55 +182,64 @@ The firmware sends this shape every 5 seconds:
 }
 ```
 
-## Acceptance Steps
+## 验收步骤
 
-1. Start Flask backend and open the Dashboard.
-2. Edit `include/config.h` with WiFi and PC LAN IP.
-3. Build with `pio run`.
-4. Insert ESP32-CAM into the USB flashing base and connect USB.
-5. Upload with `pio run -t upload`.
-6. Open Serial Monitor at 115200.
-7. Confirm WiFi connects and prints an ESP32-CAM IP.
-8. Confirm Serial prints HTTP `201` or another 2xx code every 5 seconds.
-9. Confirm the Dashboard shows repeated `state=TEST`, `risk_score=0` events.
-10. Stop Flask and confirm ESP32-CAM prints HTTP errors but keeps retrying.
+1. 启动 Flask 后端并打开 Dashboard。
+2. 在 `include/config.h` 中配置 WiFi 和电脑局域网 IP。
+3. 执行 `pio run` 构建 ESP32-CAM 固件。
+4. 将 ESP32-CAM 插入 USB 烧录底座并连接 USB。
+5. 执行 `pio run -t upload` 烧录。
+6. 将 STM32 `PA2 / USART2_TX` 接到配置的 ESP32-CAM RX 引脚，并连接公共 GND。
+7. ESP32-CAM 使用 USB 烧录底座供电，不要从 STM32 取电。
+8. Keil 工程加入 `Core/Src/app_comm.c` 后，编译并下载 STM32 固件。
+9. 确认 Flask 日志出现 `POST /api/events HTTP/1.1 201`。
+10. 确认 Dashboard 显示重复的 `state=STM32_TEST`、`risk_score=0`、`device_id=labbox_001` 事件，且 `seq` 由 STM32 递增。
 
-## Troubleshooting
+## 故障排查
 
-### Serial Port Not Found
+### 找不到串口
 
-- Check Device Manager on Windows or `pio device list`.
-- Replug the USB base.
-- Try another USB cable.
-- Install the USB serial driver required by the flashing base.
+- 检查 Windows 设备管理器或执行 `pio device list`。
+- 重新插拔 USB 烧录底座。
+- 更换 USB 数据线。
+- 安装烧录底座所需的 USB 串口驱动。
 
-### Upload Fails
+### 上传失败
 
-- Lower `upload_speed` in `platformio.ini` to `115200`.
-- Confirm the board is seated correctly in the USB base.
-- If the base has no automatic download, connect `IO0` to `GND` and reset before upload.
-- Remove `IO0` from `GND` and reset after upload.
+- 将 `platformio.ini` 中的 `upload_speed` 降到 `115200`。
+- 确认 ESP32-CAM 在烧录底座中插牢。
+- 如果底座没有自动下载，上传前连接 `IO0` 到 `GND` 并 reset。
+- 上传完成后断开 `IO0` 与 `GND`，再 reset 运行。
 
-### WiFi Connection Fails
+### WiFi 连接失败
 
-- Check `WIFI_SSID` and `WIFI_PASSWORD`.
-- Use 2.4 GHz WiFi; ESP32-CAM does not support 5 GHz-only networks.
-- Move the board closer to the router.
-- Watch Serial logs for timeout and status code.
+- 检查 `WIFI_SSID` 和 `WIFI_PASSWORD`。
+- 使用 2.4 GHz WiFi，ESP32-CAM 不支持 5 GHz-only 网络。
+- 将模块靠近路由器或热点。
+- 观察 Serial 日志中的超时和状态码。
 
-### HTTP Code -1 or Connection Failed
+### HTTP Code -1 或连接失败
 
-- Confirm Flask is running before the ESP32-CAM posts events.
-- Confirm `SERVER_HOST` is the PC LAN IPv4, not `localhost`.
-- Confirm ESP32-CAM and PC are on the same WiFi/LAN.
-- Check Windows Defender Firewall or other firewall rules for TCP port `5000`.
-- Confirm Flask is listening on `0.0.0.0`, not only `127.0.0.1`.
+- 确认 Flask 已启动。
+- 确认 `SERVER_HOST` 是电脑局域网 IPv4，不是 `localhost`。
+- 确认 ESP32-CAM 和电脑在同一 WiFi/LAN。
+- 检查 Windows Defender Firewall 或其他防火墙是否允许 TCP 端口 `5000`。
+- 确认 Flask 监听 `0.0.0.0`，不是只监听 `127.0.0.1`。
 
-### Brownout or Repeated Resets
+### Dashboard 没有 STM32_TEST
 
-- The ESP32-CAM may not be getting enough current.
-- Use a stable USB port and cable.
-- Avoid powering extra modules from the USB flashing base in this stage.
+- 确认 UART 桥接模式下 `ENABLE_PERIODIC_TEST_EVENT` 为 `0`。
+- 确认 STM32 的 `app_comm.c` 已加入 Keil 工程并重新编译下载。
+- 确认 STM32 USART2 为 115200 8N1，且 `MX_USART2_UART_Init()` 已调用。
+- 确认 STM32 PA2 接到 `STM32_UART_RX_PIN` 指定的 ESP32-CAM RX 引脚。
+- 确认 STM32 GND 和 ESP32-CAM GND 已连接。
+- 确认 STM32 发送帧以 `\n` 结尾。
+
+### Brownout 或反复复位
+
+- ESP32-CAM 可能供电不足。
+- 使用稳定 USB 口和数据线。
+- 本阶段不要从 USB 烧录底座额外给其他模块供电。
 
 ## 阶段 4 实测记录（2026-06-04）
 
@@ -230,6 +263,6 @@ The firmware sends this shape every 5 seconds:
 - 但 HTTP 201 和 Dashboard 显示正常，因此串口 Monitor 不作为阶段 4 阻塞项。
 - 后续阶段如需调试 UART，应优先排查串口 Monitor 问题。
 
-## Next Stage
+## 下一阶段
 
-Stage 5 will add STM32 UART input. ESP32-CAM will receive STM32 events and forward them to Flask. STM32 remains the only local real-time safety controller; ESP32-CAM still will not calculate risk or control actuators.
+Task 04 硬件联调通过后，下一轮再把固定 `STM32_TEST` 字段替换为真实 STM32 传感器和状态字段。后续仍然必须保持 `risk_score`、`safety_fsm` 和本地执行器控制在 STM32 侧。

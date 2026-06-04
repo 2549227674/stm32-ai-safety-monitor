@@ -21,6 +21,7 @@
 #include "adc.h"
 #include "i2c.h"
 #include "tim.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -30,6 +31,7 @@
 #include "bsp_outputs.h"
 #include "bsp_oled.h"
 #include "app_display.h"
+#include "app_comm.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,6 +60,7 @@ static uint8_t s_pir = 0U;
 static uint8_t s_mq2 = 0U;
 static uint8_t s_door = 0U;
 static uint8_t s_fan_on = 0U;
+static uint32_t s_comm_last_tx_ms = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,6 +106,7 @@ int main(void)
   MX_ADC1_Init();
   MX_I2C1_Init();
   MX_TIM2_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   BSP_Outputs_Init();
 
@@ -112,6 +116,7 @@ int main(void)
 
   BSP_OLED_Init();
   AppDisplay_Init();
+  AppComm_Init(&huart2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -147,6 +152,12 @@ int main(void)
                       0U,
                       0U,
                       0U);
+
+    if ((HAL_GetTick() - s_comm_last_tx_ms) >= 3000U)
+    {
+        s_comm_last_tx_ms = HAL_GetTick();
+        (void)AppComm_SendStm32Test();
+    }
 
 #if (P0_ENABLE_FAN_TEST)
     BSP_Output_BuzzerOff();

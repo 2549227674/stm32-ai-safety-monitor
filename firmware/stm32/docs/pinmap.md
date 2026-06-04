@@ -26,8 +26,8 @@
 |---|---|---|---|
 | PA9 | USART1_TX | 预留 / 待验证 | USB-TTL 未到货，P0-01 暂缓 |
 | PA10 | USART1_RX | 预留 / 待验证 | USB-TTL 未到货，P0-01 暂缓 |
-| PA2 | USART2_TX | 预留 | 后续 STM32 发给 ESP32-CAM |
-| PA3 | USART2_RX | 预留 | 后续 ESP32-CAM 发给 STM32 |
+| PA2 | USART2_TX | 已配置 / 待联调 | Stage 5 / Task 04：STM32 发送 JSON 给 ESP32-CAM；尚未完成硬件联调验收 |
+| PA3 | USART2_RX | 已配置 / 待联调 | Stage 5 / Task 04：ESP32-CAM TX 可选预留；本轮主要验证 STM32 TX → ESP32-CAM RX |
 | PA1 | ADC1_IN1 | 预留 / 待验证 | 后续 MQ-2 AO 可选输入；5V 供电时 AO 接 ADC 前必须先分压到 VDDA/3.3V 范围 |
 | PB13 | 暂不使用 | 原方案异常 | 原 PIR 输入链路不可靠，疑似排针/杜邦线/接触问题；不再作为 PIR 默认引脚 |
 | PA6 | RELAY1_CTRL / 继电器控制 | 预留 / 待验证 | P0-05A，继电器必须经模块/驱动控制，不得 GPIO 直驱负载 |
@@ -49,3 +49,4 @@
 | 面包板供电 | 黑色面包板电源模块可通过跳帽输出 3.3V/5V 分轨；两侧正极不得直接相连，所有 GND 必须与 STM32 GND 共地 |
 | ST-Link 供电 | 只适合 STM32 + 少量小功耗模块 bring-up；若 STM32 已由 Type-C 供电，ST-Link 只接 SWDIO/SWCLK/GND，不接 ST-Link 3.3V |
 | 12V | 12V 适配器/电池不得直接接 STM32、OLED、PIR、MQ-2 |
+| USART2 桥接 | PA2/PA3 为 3.3V TTL UART；PA2 接 ESP32-CAM RX 时必须共地，ESP32-CAM 继续由 USB 烧录底座供电，不得由 STM32/ST-Link 3.3V 供电 |
