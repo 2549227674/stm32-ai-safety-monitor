@@ -23,13 +23,18 @@
 #define HTTP_CONNECT_TIMEOUT_MS 3000UL
 #define HTTP_READ_TIMEOUT_MS    5000UL
 
-// Stage 5 UART bridge.
+// Stage 5 UART0 bridge.
+// Default wiring:
+// STM32 PA2 / USART2_TX -> ESP32-CAM RX / U0R / GPIO3
+// STM32 GND             -> ESP32-CAM GND
+// Disconnect STM32 PA2 -> U0R while flashing ESP32-CAM, then reconnect after upload.
 // Default mode forwards STM32 UART JSON lines to Flask.
 // Set ENABLE_PERIODIC_TEST_EVENT to 1 only when repeating the Stage 4 ESP32-only HTTP test.
 #define ENABLE_PERIODIC_TEST_EVENT 0
+#define ESP32CAM_DEBUG_LOG         0
 #define STM32_UART_BAUD            115200
-#define STM32_UART_RX_PIN          13
-#define STM32_UART_TX_PIN          14
+#define STM32_UART_RX_PIN          3
+#define STM32_UART_TX_PIN          1
 #define STM32_UART_LINE_MAX        512
 
 // LED configuration.

@@ -8,16 +8,20 @@
 #define ENABLE_PERIODIC_TEST_EVENT 0
 #endif
 
+#ifndef ESP32CAM_DEBUG_LOG
+#define ESP32CAM_DEBUG_LOG 0
+#endif
+
 #ifndef STM32_UART_BAUD
 #define STM32_UART_BAUD 115200
 #endif
 
 #ifndef STM32_UART_RX_PIN
-#define STM32_UART_RX_PIN 13
+#define STM32_UART_RX_PIN 3
 #endif
 
 #ifndef STM32_UART_TX_PIN
-#define STM32_UART_TX_PIN 14
+#define STM32_UART_TX_PIN 1
 #endif
 
 #ifndef STM32_UART_LINE_MAX
@@ -25,7 +29,16 @@
 #endif
 
 static uint32_t g_seq = 1;
-static HardwareSerial Stm32Uart(1);
+
+#if ESP32CAM_DEBUG_LOG
+#define LOG_PRINT(...) Serial.print(__VA_ARGS__)
+#define LOG_PRINTLN(...) Serial.println(__VA_ARGS__)
+#define LOG_PRINTF(...) Serial.printf(__VA_ARGS__)
+#else
+#define LOG_PRINT(...) ((void)0)
+#define LOG_PRINTLN(...) ((void)0)
+#define LOG_PRINTF(...) ((void)0)
+#endif
 
 
 static void ledWrite(bool on)
@@ -59,9 +72,9 @@ static bool ensureWiFiConnected()
         return true;
     }
 
-    Serial.println();
-    Serial.println("[wifi] disconnected, connecting...");
-    Serial.printf("[wifi] ssid=%s\n", WIFI_SSID);
+    LOG_PRINTLN();
+    LOG_PRINTLN("[wifi] disconnected, connecting...");
+    LOG_PRINTF("[wifi] ssid=%s\n", WIFI_SSID);
 
     ledWrite(false);
     WiFi.mode(WIFI_STA);
@@ -73,22 +86,22 @@ static bool ensureWiFiConnected()
     while (WiFi.status() != WL_CONNECTED && (millis() - start) < WIFI_CONNECT_TIMEOUT_MS)
     {
         delay(250);
-        Serial.print(".");
+        LOG_PRINT(".");
     }
-    Serial.println();
+    LOG_PRINTLN();
 
     if (WiFi.status() == WL_CONNECTED)
     {
-        Serial.printf("[wifi] connected, ip=%s, rssi=%d dBm\n",
-                      WiFi.localIP().toString().c_str(),
-                      WiFi.RSSI());
+        LOG_PRINTF("[wifi] connected, ip=%s, rssi=%d dBm\n",
+                   WiFi.localIP().toString().c_str(),
+                   WiFi.RSSI());
         ledWrite(true);
         return true;
     }
 
-    Serial.printf("[wifi] connect timeout after %lu ms, status=%d\n",
-                  (unsigned long)WIFI_CONNECT_TIMEOUT_MS,
-                  WiFi.status());
+    LOG_PRINTF("[wifi] connect timeout after %lu ms, status=%d\n",
+               (unsigned long)WIFI_CONNECT_TIMEOUT_MS,
+               WiFi.status());
     WiFi.disconnect(false);
     ledWrite(false);
     return false;
@@ -114,9 +127,9 @@ static bool buildTestEventJson(char *json, size_t jsonSize)
 
     if (written < 0 || static_cast<size_t>(written) >= jsonSize)
     {
-        Serial.printf("[json] buffer too small, written=%d, size=%u\n",
-                      written,
-                      static_cast<unsigned>(jsonSize));
+        LOG_PRINTF("[json] buffer too small, written=%d, size=%u\n",
+                   written,
+                   static_cast<unsigned>(jsonSize));
         return false;
     }
 
@@ -128,13 +141,13 @@ static bool postEventJson(const char *json, size_t jsonLength)
 {
     if (!ensureWiFiConnected())
     {
-        Serial.println("[post] skip: WiFi is not connected");
+        LOG_PRINTLN("[post] skip: WiFi is not connected");
         return false;
     }
 
     const String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + API_ENDPOINT;
-    Serial.printf("[post] url=%s\n", url.c_str());
-    Serial.printf("[post] payload_len=%u\n", static_cast<unsigned>(jsonLength));
+    LOG_PRINTF("[post] url=%s\n", url.c_str());
+    LOG_PRINTF("[post] payload_len=%u\n", static_cast<unsigned>(jsonLength));
 
     WiFiClient client;
     HTTPClient http;
@@ -143,7 +156,7 @@ static bool postEventJson(const char *json, size_t jsonLength)
 
     if (!http.begin(client, url))
     {
-        Serial.println("[post] http.begin failed");
+        LOG_PRINTLN("[post] http.begin failed");
         http.end();
         return false;
     }
@@ -161,13 +174,13 @@ static bool postEventJson(const char *json, size_t jsonLength)
         {
             body = body.substring(0, 120);
         }
-        Serial.printf("[post] http_code=%d body=%s\n", code, body.c_str());
+        LOG_PRINTF("[post] http_code=%d body=%s\n", code, body.c_str());
     }
     else
     {
-        Serial.printf("[post] failed code=%d error=%s\n",
-                      code,
-                      http.errorToString(code).c_str());
+        LOG_PRINTF("[post] failed code=%d error=%s\n",
+                   code,
+                   http.errorToString(code).c_str());
     }
 
     http.end();
@@ -184,7 +197,7 @@ static bool postTestEvent()
         return false;
     }
 
-    Serial.printf("[post] seq=%lu payload=%s\n", (unsigned long)g_seq, json);
+    LOG_PRINTF("[post] seq=%lu payload=%s\n", (unsigned long)g_seq, json);
     const bool ok = postEventJson(json, strlen(json));
     if (ok)
     {
@@ -204,11 +217,11 @@ static void handleStm32UartLine(const char *line, size_t length)
 {
     if (!isValidJsonLine(line, length))
     {
-        Serial.printf("[uart] drop invalid line len=%u\n", static_cast<unsigned>(length));
+        LOG_PRINTF("[uart] drop invalid line len=%u\n", static_cast<unsigned>(length));
         return;
     }
 
-    Serial.printf("[uart] forward line len=%u\n", static_cast<unsigned>(length));
+    LOG_PRINTF("[uart] forward line len=%u\n", static_cast<unsigned>(length));
     (void)postEventJson(line, length);
 }
 
@@ -218,9 +231,9 @@ static void pollStm32Uart()
     static char line[STM32_UART_LINE_MAX];
     static size_t pos = 0U;
 
-    while (Stm32Uart.available() > 0)
+    while (Serial.available() > 0)
     {
-        const int value = Stm32Uart.read();
+        const int value = Serial.read();
         if (value < 0)
         {
             return;
@@ -245,7 +258,7 @@ static void pollStm32Uart()
 
         if (pos >= (sizeof(line) - 1U))
         {
-            Serial.println("[uart] line overflow, drop frame");
+            LOG_PRINTLN("[uart] line overflow, drop frame");
             pos = 0U;
             continue;
         }
@@ -257,7 +270,7 @@ static void pollStm32Uart()
 
 void setup()
 {
-    Serial.begin(115200);
+    Serial.begin(STM32_UART_BAUD);
     delay(800);
 
 #if STATUS_LED_PIN >= 0
@@ -265,18 +278,16 @@ void setup()
     ledWrite(false);
 #endif
 
-    Serial.println();
-    Serial.println("=== ESP32-CAM Safety Monitor UART Bridge ===");
-    Serial.println("[mode] stage 5: STM32 UART JSON -> HTTP event");
-    Serial.println("[mode] no camera, no image upload, no local actuators");
-    Serial.printf("[server] http://%s:%d%s\n", SERVER_HOST, SERVER_PORT, API_ENDPOINT);
-    Serial.printf("[health] http://%s:%d%s\n", SERVER_HOST, SERVER_PORT, HEALTH_ENDPOINT);
-    Serial.printf("[uart] rx_pin=%d tx_pin=%d baud=%lu\n",
-                  STM32_UART_RX_PIN,
-                  STM32_UART_TX_PIN,
-                  static_cast<unsigned long>(STM32_UART_BAUD));
-
-    Stm32Uart.begin(STM32_UART_BAUD, SERIAL_8N1, STM32_UART_RX_PIN, STM32_UART_TX_PIN);
+    LOG_PRINTLN();
+    LOG_PRINTLN("=== ESP32-CAM Safety Monitor UART0 Bridge ===");
+    LOG_PRINTLN("[mode] stage 5: STM32 UART0 JSON -> HTTP event");
+    LOG_PRINTLN("[mode] no camera, no image upload, no local actuators");
+    LOG_PRINTF("[server] http://%s:%d%s\n", SERVER_HOST, SERVER_PORT, API_ENDPOINT);
+    LOG_PRINTF("[health] http://%s:%d%s\n", SERVER_HOST, SERVER_PORT, HEALTH_ENDPOINT);
+    LOG_PRINTF("[uart] rx_pin=U0R/GPIO%d tx_pin=U0T/GPIO%d baud=%lu\n",
+               STM32_UART_RX_PIN,
+               STM32_UART_TX_PIN,
+               static_cast<unsigned long>(STM32_UART_BAUD));
 
     ensureWiFiConnected();
 }
