@@ -49,8 +49,8 @@ MVP 是基础安全闭环层，完全不依赖 ESP32-CAM、网络、Web、AI。
 | P0-04A-2 | OLED 实时调试页面 | 已完成 | 已新增 `bsp_oled` 和 `app_display`；页面显示 KEY ADC、KEY ID、FLAME、PIR、MQ2、STATE |
 | P0-04B-0 | 火焰传感器 DO 输入 | 部分完成 | 3 针 VCC/GND/DO 模块接 PB12 / FLAME_DO；无火焰状态显示正常，真实触发待安全补测 |
 | P0-04B-1 | PIR HC-SR501 输入 | 已完成 | PIR 最终从 PB13 改为 PB15 / PIR_DO，PB15 方案已通过；PB13 记录为原输入链路不可靠，不再作为 PIR 默认引脚 |
-| P0-04B-2 | MQ-2 DO 输入 | 软件链路通过，实物暂缓 | PB14 / MQ2_DO 模拟高低电平通过；MQ-2 实物 DO/AO 因缺少 10k/20k 分压电阻暂缓 |
-| P0-04B-3 | MQ-2 AO 输入 | 未开始 | 后续规划 PA1 / ADC1_IN1；5V 供电时必须分压后接入 STM32 ADC |
+| P0-04B-2 | MQ-2 DO 输入 | 软件链路通过，实物暂缓 | PB14 / MQ2_DO 模拟高低电平通过；实物 DO 接入前需确认 DO 高电平不超过 5V，且 PB14 配置为 GPIO 输入、禁用内部上下拉 |
+| P0-04B-3 | MQ-2 AO 输入 | 未开始 | 后续规划 PA1 / ADC1_IN1；5V 供电时 AO 必须分压后接入 STM32 ADC，确保不超过 VDDA/3.3V |
 | P0-05 | 继电器 / 风扇 / 水泵低压驱动 | 未开始 | N-MOSFET 模块留到 P0-05 执行器负载驱动，不用于 MQ-2 分压 |
 | P0-06 | risk_score 风险评分 | 未开始 | 待输入和输出链路稳定后实现 |
 | P0-07 | safety_fsm 状态机 | 未开始 | 依赖 risk_score；本地判断仍由 STM32 完成 |
