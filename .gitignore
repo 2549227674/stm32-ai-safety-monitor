@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# Flask runtime
+server/backend/safety_monitor.db
+server/backend/safety_monitor.db-*
+
+# Uploaded files (keep .gitkeep)
+server/backend/uploads/*
+!server/backend/uploads/.gitkeep
+
+# Keil build output
+firmware/stm32/SafetyMonitor/MDK-ARM/Objects/
+firmware/stm32/SafetyMonitor/MDK-ARM/Listings/
+*.o
+*.d
+*.crf
+*.dep
+*.axf
+*.htm
+*.lnp
+*.sct
+*.map
+*.lst
+*.i
+*.bak
+
+# IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
