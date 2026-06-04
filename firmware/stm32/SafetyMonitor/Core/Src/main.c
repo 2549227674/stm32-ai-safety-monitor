@@ -40,6 +40,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define P0_ENABLE_BUZZER_TEST 0U
+#define P0_ENABLE_FAN_TEST    1U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -56,6 +57,7 @@ static uint8_t s_flame = 0U;
 static uint8_t s_pir = 0U;
 static uint8_t s_mq2 = 0U;
 static uint8_t s_door = 0U;
+static uint8_t s_fan_on = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -121,6 +123,16 @@ int main(void)
     /* USER CODE BEGIN 3 */
     s_key_adc = BSP_Key_ReadAdc();
     s_key_id = BSP_Key_Decode(s_key_adc);
+
+    if (s_key_id == KEY_2)
+    {
+        s_fan_on = 1U;
+    }
+    else if (s_key_id == KEY_4)
+    {
+        s_fan_on = 0U;
+    }
+
     s_flame = BSP_Input_FlameDetected();
     s_pir = BSP_Input_PIRDetected();
     s_mq2 = BSP_Input_MQ2Detected();
@@ -136,7 +148,16 @@ int main(void)
                       0U,
                       0U);
 
+#if (P0_ENABLE_FAN_TEST)
+    BSP_Output_BuzzerOff();
+    BSP_Output_RGB(0U, 0U, 0U);
+    BSP_Output_RelaySet(0U);
+    BSP_Output_FanSet(s_fan_on);
+    BSP_Output_PumpSet(0U);
+#else
     BSP_Output_AllOff();
+#endif
+
     HAL_Delay(100U);
   }
   /* USER CODE END 3 */
