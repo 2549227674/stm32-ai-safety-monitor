@@ -80,6 +80,24 @@ stm32-ai-safety-monitor/
 
 详细测试记录见 `tests/p0_bringup_record.md` 和 `firmware/stm32/docs/bringup_log.md`。
 
+## 垂直切片阶段状态
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 阶段 0 | 冻结现状和仓库基线 | 已完成 |
+| 阶段 1 | STM32 main.c 模块化重构 (Task 01) | 已完成 |
+| 阶段 2 | P0-05A 继电器低压验证 | 暂缓（继电器未到货） |
+| 阶段 3 | Flask + SQLite + Dashboard 骨架 | 已完成 |
+| 阶段 4 | ESP32-CAM WiFi + HTTP 测试事件 | 已通过（手机热点，未接 STM32） |
+| 阶段 5 | STM32 → ESP32-CAM UART 桥接 | 未开始 |
+| 阶段 6 | 垂直切片 PA4 门磁 DOOR | 未开始 |
+| 阶段 7 | PIR / 火焰 / MQ-2 软件链路切片 | 未开始 |
+| 阶段 8 | P0-05B/C 风扇/水泵低压验证 | P0-05B 已通过，P0-05C 未开始 |
+| 阶段 9 | risk_score + safety_fsm + 本地闭环 | 未开始 |
+| 阶段 10 | 集成演示、报告、PPT | 未开始 |
+
+注意：阶段 4 只验证了 ESP32-CAM HTTP 上报 TEST 事件，不代表 UART 桥接或抓拍完成。
+
 ## STM32 当前代码结构
 
 已拆分的 BSP/App 模块（Task 01 已完成）：

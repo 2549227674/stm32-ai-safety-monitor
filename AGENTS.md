@@ -11,6 +11,8 @@
 - Task 01 完成：main.c 已拆分为 BSP 模块（bsp_key、bsp_inputs、bsp_outputs、bsp_oled、app_display）
 - P0-00 PC13 LED、P0-02 ADKEY、P0-03 蜂鸣器/RGB、P0-04A OLED、P0-04B PIR PB15、PA4 门磁：已通过
 - P0-05B 风扇 PA7：已通过（L9110S 驱动模块）
+- 阶段 3：Flask + SQLite + Dashboard 骨架已完成
+- 阶段 4：ESP32-CAM WiFi + HTTP TEST 事件上报已通过（手机热点，未接 STM32/UART）
 
 **暂缓**：
 - DHT11：bsp_dht11.h/c 保留，main.c 不 include/init/read，不参与 risk_score / safety_fsm
@@ -22,7 +24,12 @@
 - P0-05C 水泵 PB8
 - P0-06 risk_score 风险评分
 - P0-07 safety_fsm 状态机
-- ESP32-CAM、服务器、Web Dashboard、云端 AI
+- STM32 ↔ ESP32-CAM UART 桥接（阶段 5）
+- ESP32-CAM 抓拍
+- 垂直切片（阶段 6+）
+- 云端 AI
+
+**重要限制**：阶段 4 只验证了 ESP32-CAM 定时 POST TEST 事件到 Flask，不代表 UART 桥接完成，不代表抓拍完成，不代表 STM32 已接入 ESP32-CAM。
 
 ## 硬件引脚验证状态
 
