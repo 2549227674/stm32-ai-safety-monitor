@@ -65,8 +65,8 @@
 | USART1 日志 | USB-TTL 到货后补测 |
 | MQ-2 实物 DO/AO | DO 接 PB14 时可在确认电平和输入配置后直连；AO 接 ADC 前必须使用 10kΩ / 20kΩ 等分压 |
 | DHT11 | 已尝试但暂缓，不继续排错，不作为验收通过项 |
-| P0-05A 执行器 | PA6 / RELAY1_CTRL，继电器控制，待验证 |
-| P0-05B 执行器 | PA7 / FAN_CTRL，风扇控制，待验证 |
+| P0-05A 执行器 | PA6 / RELAY1_CTRL，继电器控制，继电器未到货，暂缓 |
+| P0-05B 执行器 | PA7 / FAN_CTRL，L9110S 风扇驱动，已通过（K2 ON / K4 OFF），测试完成后已拔线 |
 | P0-05C 执行器 | PB8 / PUMP_CTRL，水泵控制，待验证 |
 | 备用输出 | PB9 / SPARE_GPIO_OUT，备用，暂不使用 |
 
