@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>安全巡检系统 Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>安全巡检系统 Dashboard</h1>
+        <p id="refreshText">等待数据刷新</p>
+      </div>
+      <span id="apiState" class="api-state">API</span>
+    </header>
+
+    <main class="layout">
+      <section class="panel status-panel">
+        <div class="panel-title">
+          <h2>当前状态</h2>
+          <span id="stateBadge" class="state-badge state-unknown">UNKNOWN</span>
+        </div>
+        <div class="metric-grid">
+          <div class="metric">
+            <span>STATE</span>
+            <strong id="currentState">暂无事件</strong>
+          </div>
+          <div class="metric">
+            <span>RISK_SCORE</span>
+            <strong id="riskScore">-</strong>
+          </div>
+          <div class="metric">
+            <span>DEVICE</span>
+            <strong id="deviceId">-</strong>
+          </div>
+          <div class="metric">
+            <span>SEQ</span>
+            <strong id="seq">-</strong>
+          </div>
+          <div class="metric wide">
+            <span>TIMESTAMP</span>
+            <strong id="timestamp">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>传感器</h2>
+        <div id="sensorGrid" class="chip-grid"></div>
+      </section>
+
+      <section class="panel">
+        <h2>执行器</h2>
+        <div id="actuatorGrid" class="chip-grid"></div>
+      </section>
+
+      <section class="panel events-panel">
+        <div class="panel-title">
+          <h2>最近 20 条事件</h2>
+          <span id="eventCount" class="subtle">0</span>
+        </div>
+        <div id="errorBox" class="error-box" hidden></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>设备</th>
+                <th>状态</th>
+                <th>风险</th>
+                <th>传感器摘要</th>
+              </tr>
+            </thead>
+            <tbody id="eventsBody">
+              <tr>
+                <td colspan="5" class="empty">暂无事件</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+  </body>
+</html>
