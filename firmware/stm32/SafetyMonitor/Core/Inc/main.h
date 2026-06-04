@@ -61,6 +61,8 @@ void Error_Handler(void);
 #define DOOR_MAG_DO_GPIO_Port GPIOA
 #define DHT11_DATA_Pin GPIO_PIN_5
 #define DHT11_DATA_GPIO_Port GPIOA
+#define FAN_CTRL_Pin GPIO_PIN_7
+#define FAN_CTRL_GPIO_Port GPIOA
 #define RGB_R_Pin GPIO_PIN_0
 #define RGB_R_GPIO_Port GPIOB
 #define RGB_G_Pin GPIO_PIN_1
