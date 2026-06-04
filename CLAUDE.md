@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-本项目是一套基于 STM32 的端云协同 AI 多模态安全巡检与设备健康监测系统的设计文档包。当前处于设计阶段，尚无源代码，仅有规格说明文档。
+本项目是一套基于 STM32 的端云协同 AI 多模态安全巡检与设备健康监测系统。当前处于 **P0 本地硬件 bring-up 阶段**，STM32 CubeMX + Keil MDK-ARM + HAL 工程已建立，BSP 模块已拆分，部分传感器和执行器已验证。
 
 **核心概念**：STM32F103C8T6 作为实时安全主控，ESP32-CAM 作为边缘视觉协处理器，云端 AI 负责异常解释。系统融合烟雾、火焰、PIR、门磁、温湿度、震动六类传感器数据，通过多模态风险评分状态机驱动本地执行器（蜂鸣器、RGB LED、继电器、风扇、水泵）。
 
@@ -27,26 +27,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 stm32-ai-safety-monitor/
 ├── README.md                    # 项目说明
 ├── CLAUDE.md                    # Claude Code 指南
-├── docs/                        # 设计文档（14 个文档）
+├── AGENTS.md                    # Agent 工作指南
+├── DEVPLAN.md                   # 垂直切片执行计划
+├── docs/                        # 设计文档（14 个文档，docs/00-14）
 ├── firmware/                    # 固件代码
-│   ├── stm32/                   # STM32 固件
-│   └── esp32cam/                # ESP32-CAM 固件
-├── server/                      # 服务器端
-│   ├── backend/                 # 后端 API
-│   └── web-dashboard/           # Web 前端
+│   ├── stm32/                   # STM32 固件（已有 CubeMX + Keil 工程）
+│   └── esp32cam/                # ESP32-CAM 固件（后续阶段）
+├── server/                      # 服务器端（后续阶段）
 ├── hardware/                    # 硬件资料
-│   ├── schematic/               # 原理图
-│   ├── wiring/                  # 接线图
-│   └── images/                  # 硬件图片
-├── tests/                       # 测试代码
-├── assets/                      # 资源文件
-│   ├── photos/                  # 项目照片
-│   ├── diagrams/                # 架构图
-│   └── demo/                    # 演示视频
-└── project/                     # 项目文档
-    ├── report/                  # 实训报告
-    ├── slides/                  # 答辩 PPT
-    └── submission/              # 上交材料
+├── tests/                       # 测试记录
+└── project/                     # 项目文档（报告、PPT、提交材料）
 ```
 
 ## 文档结构
@@ -71,16 +61,72 @@ stm32-ai-safety-monitor/
 | `docs/13_实训报告与答辩演示方案.md` | 报告结构、答辩演示脚本（3-5 分钟） |
 | `docs/14_上报表内容与答辩摘要.md` | 上报表内容、答辩摘要 |
 
+## 当前 P0 状态
+
+| 编号 | 测试项 | 状态 |
+|---|---|---|
+| P0-00 | STM32 最小工程 + PC13 LED | 已完成 |
+| P0-02 | AD 四位按键 (PA0) | 已完成 |
+| P0-03 | 蜂鸣器 (PB5) / RGB (PB0/PB1/PB10) | 已完成 |
+| P0-04A | OLED I2C (PB6/PB7) | 已完成 |
+| P0-04B | PIR (PB15) | 已完成 |
+| P0-04B | MQ-2 DO (PB14) | 软件链路通过，实物暂缓 |
+| P0-04B | 门磁 (PA4) | 已验证，常开型 |
+| P0-05A | 继电器 (PA6) | 未到货，暂缓 |
+| P0-05B | 风扇 (PA7) | 已通过，L9110S 驱动 |
+| P0-05C | 水泵 (PB8) | 未开始 |
+| P0-06 | risk_score 风险评分 | 未开始 |
+| P0-07 | safety_fsm 状态机 | 未开始 |
+
+详细测试记录见 `tests/p0_bringup_record.md` 和 `firmware/stm32/docs/bringup_log.md`。
+
+## STM32 当前代码结构
+
+已拆分的 BSP/App 模块（Task 01 已完成）：
+
+```
+firmware/stm32/SafetyMonitor/Core/Inc/
+├── bsp_key.h          # AD 按键 BSP
+├── bsp_inputs.h       # 传感器输入 BSP
+├── bsp_outputs.h      # 执行器输出 BSP
+├── bsp_oled.h         # OLED I2C 驱动
+├── bsp_dht11.h        # DHT11（保留但暂缓，当前不使用）
+├── app_display.h      # OLED 调试页面
+└── main.h             # CubeMX 生成
+
+firmware/stm32/SafetyMonitor/Core/Src/
+├── bsp_key.c
+├── bsp_inputs.c
+├── bsp_outputs.c
+├── bsp_oled.c
+├── bsp_dht11.c        # 保留但暂缓，main.c 不 include/init/read
+├── app_display.c
+├── main.c             # CubeMX 生成 + USER CODE 区域
+├── adc.c, gpio.c, i2c.c, tim.c  # CubeMX 生成
+└── stm32f1xx_it.c     # 中断处理
+```
+
+**DHT11 当前状态**：`bsp_dht11.h/c` 保留，但 main.c 不 include、不 init、不 read。`AppDisplay_Update` 最后三个参数使用 `0U, 0U, 0U`。不参与 risk_score / safety_fsm。
+
 ## 关键技术细节
 
 ### STM32 软件栈
 - 裸机前后台 + SysTick 定时调度（不使用 RTOS）
-- 任务周期：按键 10ms、传感器 50-100ms、风险评分 100-200ms、状态机 100ms、OLED 200-500ms、DHT 1-2s、MPU6050 20ms、ESP 心跳 2s
-- 关键枚举：`SystemState_t`（INIT→IDLE→NORMAL→PRE_ALARM→ALARM→DANGER→SILENCE→FAULT...）、`RiskLevel_t`、`BuzzerMode_t`、`RgbMode_t`
+- 任务周期：按键 10ms、传感器 50-100ms、风险评分 100-200ms、状态机 100ms、OLED 200-500ms、MPU6050 20ms、ESP 心跳 2s
+- 关键枚举：`SystemState_t`、`RiskLevel_t`、`BuzzerMode_t`、`RgbMode_t`
+
+### risk_score 风险评分（0-10 分制）
+
+| 分值 | 风险等级 |
+|---:|---|
+| 0-2 | NORMAL |
+| 3-5 | PRE_ALARM |
+| 6-8 | ALARM |
+| >=9 | DANGER |
 
 ### UART 协议（STM32↔ESP32-CAM）
 - 帧格式：`0xAA 0x55 | version | msg_type | seq | cmd | len | payload | checksum`
-- 命令码：PING/PONG（0x01/0x02）、SNAP_REQ/OK/FAIL（0x10-0x12）、UPLOAD_REQ/OK/FAIL（0x30-0x32）、AI_REQ/RESULT/FAIL（0x40-0x42）、ACK/NACK（0x7E/0x7F）
+- 命令码：PING/PONG、SNAP_REQ/OK/FAIL、UPLOAD_REQ/OK/FAIL、AI_REQ/RESULT/FAIL、ACK/NACK
 - payload 0-64 字节，checksum 为 version 到 payload 的异或
 
 ### 硬件安全规则
@@ -89,33 +135,14 @@ stm32-ai-safety-monitor/
 - 水泵必须经 MOS 管/驱动板控制，禁止 GPIO 直接驱动
 - 水泵软件限时：喷淋 1-3 秒，冷却 10 秒以上
 - ESP32-CAM 需独立 5V 支路（Wi-Fi 和拍照峰值电流大）
+- 风扇/继电器/水泵不得由 ST-Link 或 STM32 GPIO 直接供电，必须独立供电并使用驱动模块
 
-### 固件目录结构（开发时使用）
-
-**STM32 固件**（`firmware/stm32/`）：
-```
-firmware/stm32/
-├─ BSP/          （bsp_gpio、bsp_adc、bsp_i2c、bsp_usart、bsp_timer、bsp_pwm）
-├─ Drivers/      （driver_oled、driver_dht、driver_mq2、driver_mpu6050、driver_buzzer、driver_rgb）
-├─ App/          （app_main、sensor_manager、risk_engine、state_machine、actuator_manager、fault_manager、log_manager、config_manager、ui_manager）
-├─ Protocol/     （protocol_frame、comm_esp32cam）
-└─ Config/       （app_config.h）
-```
-
-**ESP32-CAM 固件**（`firmware/esp32cam/`）：
-```
-firmware/esp32cam/
-├─ main/         （main、camera_ctrl、uart_protocol、web_server、upload_client、ai_client）
-└─ CMakeLists.txt
-```
-
-**服务器端**（`server/`）：
-```
-server/
-├─ backend/      （Flask/FastAPI 主程序、ai_proxy.py）
-├─ web-dashboard/（dashboard.html、style.css、app.js）
-└─ uploads/      （事件图片存储）
-```
+### CubeMX / Keil 开发规则
+- 引脚和外设配置优先通过 STM32CubeMX 图形界面修改并 Generate Code
+- 不要手写 main.h / gpio.c / adc.c / i2c.c / tim.c
+- 用户业务逻辑写在 USER CODE 区域或独立 Core/Inc、Core/Src 模块
+- 不混用 STM32F10x 标准外设库
+- 不引入 FreeRTOS
 
 ## 最小成功标准
 
