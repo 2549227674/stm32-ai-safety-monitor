@@ -1,0 +1,97 @@
+# ============================================
+# STM32 Keil MDK-ARM + CubeMX .gitignore
+# Place at: firmware/stm32/SafetyMonitor/.gitignore
+# ============================================
+
+# -----------------------------
+# Keep source and project config
+# -----------------------------
+# Do NOT ignore these files/directories:
+#   SafetyMonitor.ioc
+#   Core/Inc/
+#   Core/Src/
+#   MDK-ARM/*.uvprojx
+#   MDK-ARM/*.uvoptx
+#   MDK-ARM/startup_*.s
+#
+# Drivers/ is ignored below to keep the repo small. Regenerate it from CubeMX.
+
+# -----------------------------
+# CubeMX generated HAL/CMSIS drivers
+# -----------------------------
+Drivers/
+
+# -----------------------------
+# Keil build output directories
+# -----------------------------
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+MDK-ARM/Debug/
+MDK-ARM/Release/
+MDK-ARM/SafetyMonitor/
+
+# Some Keil projects use target-name build folders.
+MDK-ARM/*_build/
+MDK-ARM/out/
+
+# -----------------------------
+# Keil generated files
+# -----------------------------
+MDK-ARM/*.o
+MDK-ARM/*.d
+MDK-ARM/*.crf
+MDK-ARM/*.lst
+MDK-ARM/*.map
+MDK-ARM/*.dep
+MDK-ARM/*.axf
+MDK-ARM/*.elf
+MDK-ARM/*.hex
+MDK-ARM/*.bin
+MDK-ARM/*.htm
+MDK-ARM/*.lnp
+MDK-ARM/*.tra
+MDK-ARM/*.fed
+MDK-ARM/*.iex
+MDK-ARM/*.build_log.htm
+MDK-ARM/*.uvgui.*
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.scvd
+MDK-ARM/*.dbgconf
+
+# Keep Keil project files.
+!MDK-ARM/*.uvprojx
+!MDK-ARM/*.uvoptx
+!MDK-ARM/startup_*.s
+
+# -----------------------------
+# RTE note
+# -----------------------------
+# Do not ignore the whole MDK-ARM/RTE/ by default.
+# Some Keil projects may store required RTE_Components.h or device runtime files there.
+# If you confirm RTE is fully generated and not required in this repo, you may uncomment:
+# MDK-ARM/RTE/
+
+# -----------------------------
+# CubeMX temporary/backup files
+# -----------------------------
+*.mxproject
+*.bak
+*.tmp
+*.ms
+
+# -----------------------------
+# Editor/OS temporary files
+# -----------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# -----------------------------
+# Local notes / logs
+# -----------------------------
+*.log
