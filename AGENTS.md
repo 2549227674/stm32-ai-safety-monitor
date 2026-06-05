@@ -1,69 +1,178 @@
-# AGENTS.md — 当前状态、硬件验证表与 Agent 规则
+# AGENTS.md — Agent / Codex 工作入口（端边协同迁移版）
+
+> 这是 Codex 自动加载的仓库级指南。Codex 不一定自动读取 `CLAUDE.md`，因此本文件并入
+> `CLAUDE.md` 的关键规则，可独立使用。`CLAUDE.md` 予以保留，供 Claude Code 恢复后使用。
+> 二者规则一致；冲突时一律以 `CANONICAL_DECISIONS.md` 为准。
+
+## 0. 开始任何任务前必须先读（按顺序）
+
+1. `CANONICAL_DECISIONS.md` — 全局唯一事实源（项目名 / 四层架构 / 目录树 / 文件名映射 / 标记规范）。
+2. `CLAUDE_CODE_EXECUTION_GUIDE.md` — 执行总入口（文档地图 / 三机协作模型 / TODO 检索 / 回报模板）。
+3. 当前要执行的 `CLAUDE_CODE_TASK_xx_*.md`。
+4. 与任务相关的 `docs/0x_*.md`。
+5. 契约权威来源：`docs/07_端边HTTP_JSON_Contract.md`（其他文件只引用，不另造字段）。
+
+> 说明：仓库内执行文档沿用 `CLAUDE_*` 前缀（历史命名），其规则对 Codex 同样适用，无需改名。
 
 ## 1. 当前阶段
 
 | 项目 | 状态 |
 |---|---|
+| 工作目录 | WSL 原生目录 `/home/qbz415/SafetyMonitor`；不要再使用 `/mnt/c/program1/SafetyMonitor` 开发 |
+| 当前分支 | `migration/imx6ull-opi5-edge-ai` |
+| 最新迁移提交 | `a44fd9f task01: migrate to imx6ull+opi5 edge-ai, archive legacy` |
 | 总体阶段 | Task01 仓库迁移与 legacy 归档已完成 |
 | 新主线 | i.MX6ULL Pro + Orange Pi 5 + Flask |
 | 旧主线 | STM32 + ESP32-CAM 归档为 legacy |
+| 当前执行器 | 本地 Codex |
 | 首要目标 | 执行 Task02，打通 WSL→i.MX6ULL SDK/SSH/hello 部署 |
 
-## 2. 已知 legacy 状态
+## 2. 项目主线与三机角色
+
+主线为 `Edge AI Safety Monitor`：i.MX6ULL Pro 负责 Linux 本地安全控制、V4L2 抓拍与云台；
+Orange Pi 5 负责本地 RKNN 推理；Flask + SQLite + Dashboard 保留并扩展。
+
+| 节点 | 角色 | 部署/入口 |
+|---|---|---|
+| PC / WSL | 代码编辑、交叉编译、模型转换准备、scp/ssh 部署 | `scripts/build_imx6ull.sh`、`scripts/deploy_*.sh` |
+| i.MX6ULL Pro | 本地安全控制、V4L2 抓拍、云台、上报事件 | `/opt/edge-ai-safety-monitor/` |
+| Orange Pi 5 | RKNN 推理服务（先 mock 后真实） | `/opt/edge-ai-safety-monitor/opi5-ai/` |
+
+真实地址 / SDK 路径 / 端口写在不入库的 `config/inventory.yaml`。
+
+## 3. 任务执行顺序（未过门槛不进下一步）
+
+| 顺序 | 入口文档 | 目标 | 通过门槛 |
+|---|---|---|---|
+| 1 | `CLAUDE_CODE_TASK_01_repo_migration_legacy_archive.md` | 迁移分支、legacy 归档、新目录 | 已完成：旧 STM32/ESP32 进 `legacy/`，新目录存在，无重复同号 docs |
+| 2 | `CLAUDE_CODE_TASK_02_wsl_imx6ull_toolchain_ssh.md` | WSL SDK、交叉编译、SSH 到 i.MX6ULL | `hello_imx6ull` 能在板端运行 |
+| 3 | `CLAUDE_CODE_TASK_03_imx6ull_gpio_i2c_pwm_bringup.md` | GPIO/I2C/PCA9685/MOS/云台验证 | 空载 PWM、舵机、MOS 负载均有 tests 记录 |
+| 4 | `CLAUDE_CODE_TASK_04_imx6ull_v4l2_capture.md` | V4L2 抓图 | 板端生成可打开图片，记录格式/耗时 |
+| 5 | `CLAUDE_CODE_TASK_05_opi5_rknn_inference_service.md` | OPi5 AI 服务（先 mock） | `/health` 与 `/api/infer/vision` 返回 JSON |
+| 6 | `CLAUDE_CODE_TASK_06_backend_contract_extension.md` | Flask 扩展 | 新旧事件均显示，旧接口兼容 |
+| 7 | `CLAUDE_CODE_TASK_07_end_edge_vertical_slice.md` | i.MX→OPi5→Flask 完整链路 | Dashboard 显示一条完整端边事件 |
+| 8 | `CLAUDE_CODE_TASK_08_pan_tilt巡检演示.md` | 云台巡检演示 | pan/tilt 角度、图片、AI 结果联动 |
+
+建议路径：Task01 已落地后，先不碰硬件，用 `scripts/run_mock_ai.sh` + `tests/payloads/event_with_ai.json`
+跑通“mock 发包 → mock AI → Flask → Dashboard”纯软件垂直切片，作为保底可演示物，再推进 Task02 起的硬件链路。
+
+## 4. 已知 legacy 状态（只描述第一版，不作为新主线验收）
 
 | 项目 | 状态 | 说明 |
 |---|---|---|
-| ESP32-CAM 网络 POST | 历史已验证 | 可向 Flask `/api/events` POST TEST，Flask 返回 201，Dashboard 显示 TEST |
-| STM32 PA9 UART 输出 | 历史已验证 | 最新会话记录显示 PA9/USART1_TX 可输出 115200 8N1 JSON |
+| ESP32-CAM 网络 POST | 历史已验证 | Flask 返回 201，Dashboard 显示 TEST，seq 递增 |
+| STM32 PA9/USART1_TX 输出 JSON | 历史已验证 | 最新会话记录显示 115200 8N1 JSON 可输出 |
 | STM32→ESP32-CAM GPIO13 最终桥接 | 未最终验收 | PA9 到 GPIO13 物理连接不可靠或引脚位置未确认 |
 | 当前 zip 内代码 | 与最新会话状态脱节 | zip 中 STM32 仍为 USART2/huart2，ESP32-CAM 仍默认 UART0 GPIO3/1 |
 
-此表只描述 legacy 阶段，不作为新主线验收。
+## 5. 新硬件验证表（初始全为待验证，禁止预填“已通过”）
 
-## 3. 新硬件验证表
-
-| 模块 | 目标 | 初始状态 | 证据路径 | 下一步 |
+| 模块 | 目标 | 初始状态 | 证据路径 | 对应 Task |
 |---|---|---|---|---|
 | i.MX6ULL SSH | PC/WSL 可登录 | 待验证 | `tests/imx6ull/` | Task02 |
 | i.MX6ULL SDK | WSL 可交叉编译 | 待验证 | `tests/imx6ull/` | Task02 |
 | GPIO 输入 | 门磁/PIR/火焰/按键至少一路 | 待验证 | `tests/imx6ull/` | Task03 |
-| I2C | 能发现 PCA9685 或目标 I2C 设备 | 待验证 | `tests/imx6ull/` | Task03 |
-| PCA9685 PWM | 50Hz 舵机 PWM | 待验证 | `tests/imx6ull/` | Task03 |
+| I2C / PCA9685 | 发现地址并输出 50Hz PWM | 待验证 | `tests/imx6ull/` | Task03 |
 | MG90 云台 | pan/tilt 可控 | 待验证 | `tests/imx6ull/` | Task08 |
 | MOS 低压负载 | 默认 OFF 且可控 | 待验证 | `tests/imx6ull/` | Task03 |
 | USB 摄像头 | `/dev/video<TODO:VERIFY>` 可抓图 | 待验证 | `tests/imx6ull/` | Task04 |
-| OPi5 SSH | PC/WSL 可登录 | 待验证 | `tests/opi5/` | Task05 |
-| OPi5 RKNN 服务 | `/health` 和 `/api/infer/vision` 可用 | 待验证 | `tests/opi5/` | Task05 |
+| OPi5 SSH / RKNN 服务 | 登录 + `/health`、`/api/infer/vision` 可用 | 待验证 | `tests/opi5/` | Task05 |
 | Flask 扩展 | vision/AI/image 显示 | 待实现 | `tests/integration/` | Task06 |
 | 端边垂直切片 | i.MX→OPi5→Flask | 待实现 | `tests/integration/` | Task07 |
 
 > **[CLAUDE_CODE_TODO | VERIFY]** 逐项验证新硬件状态表
 > - 为何 GPT 给不了：沙箱无法访问 i.MX6ULL、OPi5、摄像头、PCA9685、舵机、MOS 负载。
 > - 期望产物/操作：按 Task02–08 执行真实命令和硬件测试，逐项把“待验证”改为“已验证/失败/绕过”。
-> - 回填位置：AGENTS.md 第 3 节表格
+> - 回填位置：AGENTS.md 第 5 节表格
 > - 验收：每项都有 tests 记录、命令输出或照片/波形证据。
 
+## 6. 允许做的事
 
-## 4. Agent 工作规则
+- 重写根目录文档与 `docs/00–14`（保持编号，不新增 `docs/15`）。
+- 移动旧 `firmware/stm32`、`firmware/esp32cam` 到 `legacy/2026-stm32-esp32/`。
+- 在 `edge/imx6ull-controller/`、`edge/opi5-ai/` 新建 Linux 控制程序与 AI 服务。
+- 在 `server/backend/` 增量扩展字段与页面，保持旧 `/api/events` 兼容。
+- 在 `common/contracts/`、`scripts/`、`tests/` 维护契约、脚本与真实测试记录。
+- 用 `git mv` 归档，不删历史。
 
-1. 开始前读 `CANONICAL_DECISIONS.md`。
-2. 只执行当前 Task 范围内的工作，不跨 Task 大改。
-3. 每次写代码先让 mock 链路跑通，再接真实硬件或真实模型。
-4. 所有硬件相关结论必须有 `tests/` 证据。
-5. 不把未测数据填入报告。
-6. 任何新 TODO 都用统一标记块。
-7. 完成任务后更新本文件状态表。
+## 7. 禁止做的事
 
-## 6. 已完成任务记录
+| 禁止 | 原因 |
+|---|---|
+| 把旧 STM32/ESP32-CAM 链路写成最终通过 | 只归档事实，不美化 |
+| 继续死磕 STM32→ESP32-CAM UART 桥接 | 已退出新主线 |
+| 删除旧代码历史 | legacy 是答辩中的工程迭代证据 |
+| 重写 Flask 为另一框架 / 覆盖真实 `app.py`、`database.py` | 现有 Flask 是最可复用资产，只增量改 |
+| 让 OPi5 / Flask / AI 直接控制执行器 | 安全闭环必须留在 i.MX6ULL；`control_allowed` 恒为 `false` |
+| 提交 `config/inventory.yaml`、`.env`、模型权重、数据库、抓拍图片、真实 IP/密码/密钥 | 入库安全 |
+| 给舵机/水泵/风扇用板卡 IO 直接供电；使用 220V 负载 | 硬件安全 |
+| 把未实测硬件写成“已通过” | 报告须与真实状态一致 |
+
+## 8. 安全红线（最高优先级）
+
+1. 本地安全闭环优先：无网络 / 无摄像头 / 无 AI 时，i.MX6ULL 仍能依据本地传感器进入安全状态。
+2. AI / Dashboard / 上层只返回 `risk_hint`、解释与展示，不直接控制蜂鸣器、RGB、继电器、风扇、水泵。
+3. 不接 220V；演示负载用低压直流；舵机与负载独立供电、星形共地；执行器默认 OFF、MOS 栅极下拉。
+4. 先空载 PWM 再接 MG90；先 LED/小风扇再接水泵；先 mock AI 再接真实 RKNN。
+
+## 9. 命令与配置原则
+
+- 真实环境值（IP、用户名、端口、SDK 路径、AI 端口）只从不入库的 `config/inventory.yaml` 读取；
+  仓库内只放 `config/inventory.example.yaml`。脚本通过 `scripts/lib_inventory.sh` 取值，不写死。
+
+```bash
+cp config/inventory.example.yaml config/inventory.yaml
+```
+
+- `config/inventory.yaml` 已在 WSL 本地创建，用于本机真实值，禁止提交。
+- 交叉编译与部署：`scripts/build_imx6ull.sh`、`scripts/deploy_imx6ull.sh`、`scripts/deploy_opi5.sh`。
+- SDK 环境变量与工具链三元组在 Task02 中确认并写入 `inventory.yaml` 的 `imx6ull.sdk_env`。
+
+## 10. 端边 Contract 原则
+
+`docs/07_端边HTTP_JSON_Contract.md` 是唯一权威来源，代码字段必须与之同步。
+保留旧事件语义 `type/device_id/seq/state/risk_score/need_snap/sensors/actuators`；
+新增 `vision/ai_result/image_url/latency_ms/frame_id/pan_tilt` 只能向后兼容（旧后端能忽略或存入 `raw_json`）。
+后端扩展落点见 `server/backend/CONTRACT_EXTENSION_NOTES.md`（`raw_json` 已存全量 payload，存储天然兼容）。
+
+## 11. 标记规范（与 CANONICAL 一致）
+
+需要本地验证/填值/调查/实测/决策处，统一用可 grep 的块：
+
+```text
+> **[CLAUDE_CODE_TODO | 类型]** 一句话说明
+> - 为何 GPT 给不了：原因
+> - 期望产物/操作：动作与产出
+> - 回填位置：文件与小节
+> - 验收：完成标准
+```
+
+类型：`VERIFY` `FILL` `INVESTIGATE` `MEASURE` `DECIDE`。默认假设用 `> **[ASSUMPTION]** ...`。
+检索全部待办：
+
+```bash
+grep -RIn "\[CLAUDE_CODE_TODO" .
+```
+
+## 12. 已完成任务记录
 
 | Task | 状态 | 证据/产物 | 说明 |
 |---|---|---|---|
-| Task01 仓库迁移与 legacy 归档 | 已完成 | `legacy/2026-stm32-esp32/`、`tests/legacy/2026-06-05_task01_repo_migration_record.md` | 旧 STM32/ESP32-CAM 工程与旧测试记录已归档，新主线目录和文档包已落地。 |
+| Task01 仓库迁移与 legacy 归档 | 已完成 | `legacy/2026-stm32-esp32/`、`tests/legacy/2026-06-05_task01_repo_migration_record.md`、提交 `a44fd9f` | 旧 STM32/ESP32-CAM 工程与旧测试记录已归档，新主线目录和文档包已落地。 |
 
-## 5. 禁止事项
+## 13. 完成任务后的固定回填
 
-- 禁止把旧 STM32/ESP32-CAM 链路写成最终通过。
-- 禁止提交 `config/inventory.yaml`、`.env`、模型权重、数据库、抓拍图片。
-- 禁止让 AI 直接控制执行器。
-- 禁止给舵机/水泵/风扇使用板卡 IO 直接供电。
-- 禁止使用真实 220V 负载。
+每完成一个 Task：
+
+1. 更新本文件第 1 / 第 5 / 第 12 节状态。
+2. 更新 `DEVPLAN.md` 看板。
+3. 在 `tests/<scope>/YYYY-MM-DD_*.md` 记录真实命令、结果、截图/波形路径。
+4. 关闭或改写对应 `[CLAUDE_CODE_TODO]`，并按需重生成 `CLAUDE_CODE_TODO_INDEX.md`。
+5. 提交信息：`taskXX: 简短说明`；提交粒度小，不混多个 Task。
+
+## 14. Codex 专属提示
+
+- 本文件（`AGENTS.md`）是 Codex 自动加载入口；遇到 `CLAUDE.md` 中的规则一律视为同样适用。
+- 不确定硬件值/路径/IP/模型名时，新增 `[CLAUDE_CODE_TODO]`，不要猜、不要编造命令输出。
+- 每完成一步先跑最小可行验证，再扩大；任何对 `server/backend/` 的改动必须保持旧 `/api/events` 兼容。
+- 当前未跟踪的 `reviewed_docs_tmp/`、`temp_docs/`、`tmp/`、`worktree.txt` 是临时材料，不要默认提交。
