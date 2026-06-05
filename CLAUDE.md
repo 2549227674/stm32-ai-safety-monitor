@@ -1,181 +1,83 @@
-# CLAUDE.md
+# CLAUDE.md — 本地 Claude Code 工作指南
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## 1. 项目主线
 
-## 项目概述
+当前主线是 `Edge AI Safety Monitor`：i.MX6ULL Pro 负责 Linux 本地安全控制、V4L2 抓拍与云台；Orange Pi 5 负责 RKNN 本地推理；Flask 后端保留并扩展。旧 STM32 / ESP32-CAM 工程只作为 legacy 归档，不再作为主线修复目标。
 
-本项目是一套基于 STM32 的端云协同 AI 多模态安全巡检与设备健康监测系统。当前处于 **P0 本地硬件 bring-up 阶段**，STM32 CubeMX + Keil MDK-ARM + HAL 工程已建立，BSP 模块已拆分，部分传感器和执行器已验证。
+必须先读：
 
-**核心概念**：STM32F103C8T6 作为实时安全主控，ESP32-CAM 作为边缘视觉协处理器，云端 AI 负责异常解释。系统融合烟雾、火焰、PIR、门磁、温湿度、震动六类传感器数据，通过多模态风险评分状态机驱动本地执行器（蜂鸣器、RGB LED、继电器、风扇、水泵）。
+1. `CANONICAL_DECISIONS.md`
+2. `CLAUDE_CODE_EXECUTION_GUIDE.md`
+3. 当前要执行的 `CLAUDE_CODE_TASK_xx_*.md`
+4. 与任务相关的 `docs/0x_*.md`
 
-**STM32 开发方式**：STM32 端采用 STM32CubeMX + Keil MDK-ARM + HAL 库开发。代码统一使用 HAL API，不使用也不混用 STM32F10x 标准外设库。CubeMX 生成文件中的自定义代码必须写在 `USER CODE BEGIN` / `USER CODE END` 区域内，避免重新生成工程时丢失。
+## 2. 仓库工作方式
 
-## 四层系统架构
+推荐分支：
 
-```
-第四层 ─ 云端 AI 智能解释层    （图像复核、异常解释、JSON 返回）
-第三层 ─ 服务器 / Web / 手机端  （事件存储、Dashboard、REST API、可选 MQTT）
-第二层 ─ ESP32-CAM 边缘视觉层  （抓拍、本地缓存、Web 预览、UART 从机）
-第一层 ─ STM32 本地实时控制层  （传感器融合、风险评分、状态机、执行器）
-```
-
-**核心约束**：STM32 是唯一主控制器，ESP32-CAM 不控制执行器。本地安全闭环必须能在无网络、无摄像头、无 AI 的情况下独立运行。
-
-## 仓库结构
-
-```
-stm32-ai-safety-monitor/
-├── README.md                    # 项目说明
-├── CLAUDE.md                    # Claude Code 指南
-├── AGENTS.md                    # Agent 工作指南
-├── DEVPLAN.md                   # 垂直切片执行计划
-├── docs/                        # 设计文档（14 个文档，docs/00-14）
-├── firmware/                    # 固件代码
-│   ├── stm32/                   # STM32 固件（已有 CubeMX + Keil 工程）
-│   └── esp32cam/                # ESP32-CAM 固件（后续阶段）
-├── server/                      # 服务器端（后续阶段）
-├── hardware/                    # 硬件资料
-├── tests/                       # 测试记录
-└── project/                     # 项目文档（报告、PPT、提交材料）
+```bash
+git checkout main
+git pull
+git checkout -b migration/imx6ull-opi5-edge-ai
 ```
 
-## 文档结构
+不要在 `main` 上直接大规模移动目录。先执行 Task 01 归档旧代码，再进入新主线。
 
-所有设计文档位于 `docs/` 目录：
+## 3. 允许做的事
 
-| 文件 | 内容 |
+- 重写根目录文档与 docs/00–14。
+- 移动旧 `firmware/stm32/`、`firmware/esp32cam/` 到 `legacy/2026-stm32-esp32/`。
+- 在 `edge/imx6ull-controller/` 新建 Linux 控制程序。
+- 在 `edge/opi5-ai/` 新建 OPi5 AI 服务。
+- 在 `common/contracts/` 维护 Contract 文档或 schema。
+- 在 `server/backend/` 增量扩展字段与页面，保持旧接口兼容。
+- 在 `scripts/` 添加 build/deploy 脚本，环境相关值用占位符或读取本地配置。
+- 在 `tests/` 写入真实测试记录。
+
+## 4. 禁止做的事
+
+| 禁止事项 | 原因 |
 |---|---|
-| `docs/00_README.md` | 项目总览、架构摘要、推荐阅读顺序 |
-| `docs/01_项目立项与总体设计.md` | 项目定位、应用场景、创新点 |
-| `docs/02_需求分析与功能优先级.md` | 功能需求、非功能需求、四层功能划分 |
-| `docs/03_硬件系统设计与供电安全.md` | 引脚连接、供电拓扑、共地、安全注意事项 |
-| `docs/04_软件架构与模块划分.md` | 裸机调度、模块分层、目录结构、关键结构体与伪代码 |
-| `docs/05_开发计划与MVP验收标准.md` | MVP 验收标准、第一天/第三天里程碑 |
-| `docs/06_状态机与联动机制.md` | 状态机、风险评分、传感器联动、执行器策略 |
-| `docs/07_UART协议与JSON_Contract.md` | STM32↔ESP32-CAM UART 帧协议、ACK/NACK、心跳、错误码 |
-| `docs/08_ESP32CAM抓拍_Web_服务器方案.md` | ESP32-CAM 抓拍、Web Dashboard、服务器 API、MQTT |
-| `docs/09_云端AI多模态异常解释方案.md` | AI 输入输出 JSON、图像复核、降级策略 |
-| `docs/10_MPU6050设备健康监测方案.md` | GY-521 震动检测算法（RMS、峰峰值） |
-| `docs/11_测试计划与风险矩阵.md` | 单模块/集成/系统测试计划、风险矩阵 |
-| `docs/12_材料清单与获取计划.md` | 物料清单、采购计划 |
-| `docs/13_实训报告与答辩演示方案.md` | 报告结构、答辩演示脚本（3-5 分钟） |
-| `docs/14_上报表内容与答辩摘要.md` | 上报表内容、答辩摘要 |
+| 不继续死磕 STM32→ESP32-CAM UART 桥接 | 该链路已退出新主线；只归档事实 |
+| 不删除旧代码历史 | legacy 是答辩中的工程迭代证据 |
+| 不重写 Flask 为另一个框架 | 现有 Flask + SQLite + Dashboard 是最可复用资产 |
+| 不提交真实 IP/密码/密钥/模型权重/图片/数据库 | 入库安全 |
+| 不让 OPi5/Flask 直接控制执行器 | 安全闭环必须留在 i.MX6ULL |
+| 不把未实测硬件写成已通过 | 防止报告与真实状态不一致 |
 
-## 当前 P0 状态
+## 5. 命令与配置原则
 
-| 编号 | 测试项 | 状态 |
-|---|---|---|
-| P0-00 | STM32 最小工程 + PC13 LED | 已完成 |
-| P0-02 | AD 四位按键 (PA0) | 已完成 |
-| P0-03 | 蜂鸣器 (PB5) / RGB (PB0/PB1/PB10) | 已完成 |
-| P0-04A | OLED I2C (PB6/PB7) | 已完成 |
-| P0-04B | PIR (PB15) | 已完成 |
-| P0-04B | MQ-2 DO (PB14) | 软件链路通过，实物暂缓 |
-| P0-04B | 门磁 (PA4) | 已验证，常开型 |
-| P0-05A | 继电器 (PA6) | 未到货，暂缓 |
-| P0-05B | 风扇 (PA7) | 已通过，L9110S 驱动 |
-| P0-05C | 水泵 (PB8) | 未开始 |
-| P0-06 | risk_score 风险评分 | 未开始 |
-| P0-07 | safety_fsm 状态机 | 未开始 |
+所有真实环境变量从不入库的本地配置读取。仓库内只放 `.example` 文件。
 
-详细测试记录见 `tests/p0_bringup_record.md` 和 `firmware/stm32/docs/bringup_log.md`。
-
-## 垂直切片阶段状态
-
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| 阶段 0 | 冻结现状和仓库基线 | 已完成 |
-| 阶段 1 | STM32 main.c 模块化重构 (Task 01) | 已完成 |
-| 阶段 2 | P0-05A 继电器低压验证 | 暂缓（继电器未到货） |
-| 阶段 3 | Flask + SQLite + Dashboard 骨架 | 已完成 |
-| 阶段 4 | ESP32-CAM WiFi + HTTP 测试事件 | 已通过（手机热点，未接 STM32） |
-| 阶段 5 | STM32 → ESP32-CAM UART 桥接 | 未开始 |
-| 阶段 6 | 垂直切片 PA4 门磁 DOOR | 未开始 |
-| 阶段 7 | PIR / 火焰 / MQ-2 软件链路切片 | 未开始 |
-| 阶段 8 | P0-05B/C 风扇/水泵低压验证 | P0-05B 已通过，P0-05C 未开始 |
-| 阶段 9 | risk_score + safety_fsm + 本地闭环 | 未开始 |
-| 阶段 10 | 集成演示、报告、PPT | 未开始 |
-
-注意：阶段 4 只验证了 ESP32-CAM HTTP 上报 TEST 事件，不代表 UART 桥接或抓拍完成。
-
-## STM32 当前代码结构
-
-已拆分的 BSP/App 模块（Task 01 已完成）：
-
-```
-firmware/stm32/SafetyMonitor/Core/Inc/
-├── bsp_key.h          # AD 按键 BSP
-├── bsp_inputs.h       # 传感器输入 BSP
-├── bsp_outputs.h      # 执行器输出 BSP
-├── bsp_oled.h         # OLED I2C 驱动
-├── bsp_dht11.h        # DHT11（保留但暂缓，当前不使用）
-├── app_display.h      # OLED 调试页面
-└── main.h             # CubeMX 生成
-
-firmware/stm32/SafetyMonitor/Core/Src/
-├── bsp_key.c
-├── bsp_inputs.c
-├── bsp_outputs.c
-├── bsp_oled.c
-├── bsp_dht11.c        # 保留但暂缓，main.c 不 include/init/read
-├── app_display.c
-├── main.c             # CubeMX 生成 + USER CODE 区域
-├── adc.c, gpio.c, i2c.c, tim.c  # CubeMX 生成
-└── stm32f1xx_it.c     # 中断处理
+```bash
+# 示例：真实值不要写死到脚本中
+cp config/inventory.example.yaml config/inventory.yaml
+# 编辑本地 inventory.yaml，禁止提交
 ```
 
-**DHT11 当前状态**：`bsp_dht11.h/c` 保留，但 main.c 不 include、不 init、不 read。`AppDisplay_Update` 最后三个参数使用 `0U, 0U, 0U`。不参与 risk_score / safety_fsm。
+> **[CLAUDE_CODE_TODO | FILL]** 补齐 WSL SDK 环境变量与工具链三元组
+> - 为何 GPT 给不了：沙箱只能看到仓库，无法访问本地 i.MX6ULL SDK。
+> - 期望产物/操作：在 WSL 中找到 SDK 的 `environment-setup-*` 文件，确认 `$CC`、`$CXX`、`$SDKTARGETSYSROOT`。
+> - 回填位置：CLAUDE.md 第 5 节；Task02；docs/04 交叉编译小节
+> - 验收：`source <SDK_ENV>` 后 `$CC --version` 可输出真实交叉编译器版本，hello 可编译。
 
-## 关键技术细节
 
-### STM32 软件栈
-- 裸机前后台 + SysTick 定时调度（不使用 RTOS）
-- 任务周期：按键 10ms、传感器 50-100ms、风险评分 100-200ms、状态机 100ms、OLED 200-500ms、MPU6050 20ms、ESP 心跳 2s
-- 关键枚举：`SystemState_t`、`RiskLevel_t`、`BuzzerMode_t`、`RgbMode_t`
+## 6. 端边 Contract 原则
 
-### risk_score 风险评分（0-10 分制）
+`docs/07_端边HTTP_JSON_Contract.md` 是唯一权威来源。代码实现字段必须和 docs/07 同步。旧事件字段继续支持：
 
-| 分值 | 风险等级 |
-|---:|---|
-| 0-2 | NORMAL |
-| 3-5 | PRE_ALARM |
-| 6-8 | ALARM |
-| >=9 | DANGER |
+```json
+{"type":"event","device_id":"labbox_001","seq":1,"state":"NORMAL","risk_score":0,"need_snap":false,"sensors":{},"actuators":{}}
+```
 
-### UART 协议（STM32↔ESP32-CAM）
-- 帧格式：`0xAA 0x55 | version | msg_type | seq | cmd | len | payload | checksum`
-- 命令码：PING/PONG、SNAP_REQ/OK/FAIL、UPLOAD_REQ/OK/FAIL、AI_REQ/RESULT/FAIL、ACK/NACK
-- payload 0-64 字节，checksum 为 version 到 payload 的异或
+新增字段只允许向后兼容，不允许破坏旧 Dashboard 事件显示。
 
-### 硬件安全规则
-- 所有 GND 必须共地（推荐星形接地）
-- MQ-2 AO 可能超过 3.3V，必须加分压电阻（10k/20k）
-- 水泵必须经 MOS 管/驱动板控制，禁止 GPIO 直接驱动
-- 水泵软件限时：喷淋 1-3 秒，冷却 10 秒以上
-- ESP32-CAM 需独立 5V 支路（Wi-Fi 和拍照峰值电流大）
-- 风扇/继电器/水泵不得由 ST-Link 或 STM32 GPIO 直接供电，必须独立供电并使用驱动模块
+## 7. 完成任务后的固定回填
 
-### CubeMX / Keil 开发规则
-- 引脚和外设配置优先通过 STM32CubeMX 图形界面修改并 Generate Code
-- 不要手写 main.h / gpio.c / adc.c / i2c.c / tim.c
-- 用户业务逻辑写在 USER CODE 区域或独立 Core/Inc、Core/Src 模块
-- 不混用 STM32F10x 标准外设库
-- 不引入 FreeRTOS
+每完成一个 Task：
 
-## 最小成功标准
-
-系统可提交的基础条件：
-1. 任一传感器（烟雾/火焰/PIR/门磁）触发
-2. STM32 计算风险评分并驱动状态机转换
-3. OLED 显示当前状态和风险等级
-4. 蜂鸣器/RGB LED 提供反馈
-5. 至少一个执行器（风扇/继电器/水泵）动作
-6. 按键可布防、撤防、静音、复位
-
-## A 类冲刺目标（超越 MVP）
-
-- ESP32-CAM 异常抓拍成功（SNAP_OK 可回显）
-- Web Dashboard 可在手机浏览器查看当前状态和抓拍图片
-- 服务器接收并存储至少一条事件和图片
-- 云端 AI 返回异常解释 JSON 并展示在 Web 页面
-- 断网/AI 失败时本地系统继续工作，Web 显示"AI 分析不可用"
+1. 更新 `AGENTS.md` 状态表。
+2. 更新 `DEVPLAN.md` 看板。
+3. 在 `tests/<scope>/YYYY-MM-DD_*.md` 记录真实命令、结果、截图/波形路径。
+4. 移除或关闭对应 `[CLAUDE_CODE_TODO]`。
+5. 提交信息使用：`taskXX: 简短说明`。
