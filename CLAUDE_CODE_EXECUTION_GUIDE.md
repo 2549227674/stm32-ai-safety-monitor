@@ -67,11 +67,9 @@ grep -RIn "\[ASSUMPTION" .
 | i.MX6ULL Pro | 本地安全控制、V4L2 抓拍、云台控制、上报事件 | `/opt/edge-ai-safety-monitor/` | `IMX_IP=<TODO:FILL>`、`IMX_USER=<TODO:FILL>` |
 | Orange Pi 5 | RKNN 推理服务、可选 Flask 最终部署 | `/opt/edge-ai-safety-monitor/opi5-ai/` | `OPI5_IP=<TODO:FILL>`、`OPI5_USER=<TODO:FILL>` |
 
-> **[CLAUDE_CODE_TODO | VERIFY]** 恢复并复测本地 `inventory.yaml` 的 SSH 链路
-> - 为何 GPT 给不了：本地 `inventory.yaml` 已填写并确认被 `.gitignore` 忽略，但本轮 WSL/Windows 到 i.MX6ULL SSH 不可达。
-> - 期望产物/操作：恢复板端网络后，用 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run` 复测 i.MX6ULL；Task05 再复测 OPi5。
-> - 回填位置：CLAUDE_CODE_EXECUTION_GUIDE.md 第 4 节；Task02/05/07 命令占位符
-> - 验收：PC/WSL 能 SSH 到 i.MX6ULL 并运行 hello；OPi5 SSH 在 Task05 有记录；真实值没有提交到 git。
+Task02 已验证本地 `inventory.yaml`、i.MX6ULL SSH、OPi5 SSH smoke test、hello 编译、scp 与板端运行；
+真实值仍只保存在不入库的 `config/inventory.yaml`。证据见 `tests/imx6ull/2026-06-06_toolchain_ssh.md`。
+本地 `password` 字段为可选项；部署脚本存在该字段时使用 `sshpass -e`，否则使用常规 SSH key/agent。
 
 
 ## 5. 安全与禁止红线

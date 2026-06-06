@@ -84,11 +84,9 @@ scp build/imx6ull/hello_imx6ull <IMX_USER_TODO_FILL>@<IMX_IP_TODO_FILL>:/opt/edg
 ssh <IMX_USER_TODO_FILL>@<IMX_IP_TODO_FILL> /opt/edge-ai-safety-monitor/hello_imx6ull
 ```
 
-> **[CLAUDE_CODE_TODO | VERIFY]** 复测 i.MX6ULL 板端运行 hello
-> - 为何 GPT 给不了：本轮已定位 SDK 无 `environment-setup-*`，使用 `imx6ull.cc` 交叉编译成功；但 SSH 到板端当前不可达。
-> - 期望产物/操作：恢复 SSH 后运行 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run`。
-> - 回填位置：docs/04 第 4.7；Task02
-> - 验收：hello 能在 i.MX6ULL 输出 `hello from imx6ull target`。
+Task02 已验证 WSL 交叉编译与 i.MX6ULL 板端运行：本 SDK 无 `environment-setup-*`，通过
+`config/inventory.yaml` 的 `imx6ull.cc` 指向 `arm-buildroot-linux-gnueabihf-gcc`；`hello_imx6ull`
+已在板端输出 `hello from imx6ull target`。证据见 `tests/imx6ull/2026-06-06_toolchain_ssh.md`。
 
 
 ## 4.8 systemd 服务

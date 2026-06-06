@@ -8,11 +8,7 @@
 
 Task01 已完成。需要 i.MX6ULL 上电、联网、SSH 可用，且本地有 SDK。
 
-> **[CLAUDE_CODE_TODO | VERIFY]** 恢复并复测 i.MX6ULL SSH / hello 板端运行
-> - 为何 GPT 给不了：SDK 路径、CC、inventory 与 hello 交叉编译已由本地命令确认，但本轮 WSL/Windows 到 i.MX6ULL SSH 不可达。
-> - 期望产物/操作：恢复板端网络后运行 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run`。
-> - 回填位置：Task02 前置条件和命令
-> - 验收：板端输出 `hello from imx6ull target`。
+Task02 已完成。证据见 `tests/imx6ull/2026-06-06_toolchain_ssh.md`。
 
 
 ## 操作步骤
@@ -21,9 +17,9 @@ Task01 已完成。需要 i.MX6ULL 上电、联网、SSH 可用，且本地有 S
 2. source SDK 或配置 `CC`。（已完成）
 3. 新建 `hello.c`。（已完成）
 4. 交叉编译。（已完成）
-5. scp 到 i.MX6ULL。（本轮失败：SSH 不可达）
-6. ssh 运行。（待复测）
-7. 写部署脚本。（已完成：脚本从 `config/inventory.yaml` 读取）
+5. scp 到 i.MX6ULL。（已完成）
+6. ssh 运行。（已完成，输出 `hello from imx6ull target`）
+7. 写部署脚本。（已完成：脚本从 `config/inventory.yaml` 读取；如配置 `password`，自动使用 `sshpass -e`）
 
 ## 命令骨架
 
@@ -45,7 +41,7 @@ scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run
 ## 验收标准
 
 - [x] `$CC --version` 有真实输出。
-- [ ] 目标文件能在板端运行。
+- [x] 目标文件能在板端运行。
 - [x] 测试记录包含命令与输出。
 - [x] 真实 IP/用户名未提交。
 

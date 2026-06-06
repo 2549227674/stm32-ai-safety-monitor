@@ -6,6 +6,7 @@ network:
 imx6ull:
   host: "<IMX_IP_TODO_FILL>"
   user: "<IMX_USER_TODO_FILL>"
+  password: "<IMX_PASSWORD_TODO_FILL>"
   ssh_port: 22
   deploy_dir: "/opt/edge-ai-safety-monitor"
   sdk_env: "<WSL_SDK_ENV_TODO_FILL>"
@@ -15,6 +16,7 @@ imx6ull:
 opi5:
   host: "<OPI5_IP_TODO_FILL>"
   user: "<OPI5_USER_TODO_FILL>"
+  password: "<OPI5_PASSWORD_TODO_FILL>"
   ssh_port: 22
   deploy_dir: "/opt/edge-ai-safety-monitor/opi5-ai"
   ai_port: "<OPI5_AI_PORT_TODO_FILL>"

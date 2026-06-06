@@ -5,7 +5,7 @@
 - 分支：`migration/imx6ull-opi5-edge-ai`
 - SDK 可用性：已验证，可交叉编译 ARM 32-bit hello。
 - SDK relocation：已执行嵌套 SDK 目录中的 `relocate-sdk.sh`。
-- hello 部署/板端运行：未通过。本轮 WSL 与 Windows 侧均无法连通 i.MX6ULL SSH，未完成 `scp` 和板端运行验收。
+- SSH 与 hello 部署/板端运行：已通过。网络恢复后，WSL 可 SSH 到 i.MX6ULL 与 OPi5，`hello_imx6ull` 已推送到 i.MX6ULL 并输出期望文本。
 - 真实 IP 仅出现在本地 `config/inventory.yaml` 和本测试记录中；`config/inventory.yaml` 不提交。
 
 ## 本地配置
@@ -90,7 +90,7 @@ git check-ignore -v config/inventory.yaml
 
 ## scp / ssh 部署
 
-命令：
+初次命令：
 
 ```bash
 scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run
@@ -159,6 +159,57 @@ Neighbor 192.168.137.110 on ifIndex 12: State Incomplete, LinkLayerAddress 00-00
 
 PC 侧结论：以太网口已 Up，但未收到 i.MX6ULL `192.168.137.110` 的 ARP 响应；OPi5 路径依赖 i.MX6ULL 转发，因此 i.MX6ULL 不通时 OPi5 也无法从 PC 侧连通。
 
+网络恢复后复测：
+
+```bash
+sshpass -e ssh root@192.168.137.110 "echo imx6ull-ssh-ok"
+sshpass -e ssh orangepi@10.0.1.120 "echo opi5-ssh-ok"
+ping -c 2 -W 1 192.168.137.110
+ping -c 2 -W 1 10.0.1.120
+```
+
+输出摘要：
+
+```text
+imx6ull-ssh-ok
+opi5-ssh-ok
+192.168.137.110: 2 packets transmitted, 2 received, 0% packet loss
+10.0.1.120: 2 packets transmitted, 2 received, 0% packet loss
+```
+
+PC 侧 TCP 22 复测：
+
+```powershell
+Test-NetConnection -ComputerName 192.168.137.110 -Port 22 -InformationLevel Quiet
+Test-NetConnection -ComputerName 10.0.1.120 -Port 22 -InformationLevel Quiet
+```
+
+输出：
+
+```text
+True
+True
+```
+
+最终部署命令：
+
+```bash
+scripts/build_imx6ull.sh
+scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run
+```
+
+输出摘要：
+
+```text
+[build] CC = /home/qbz415/arm-buildroot-linux-gnueabihf_sdk-buildroot/arm-buildroot-linux-gnueabihf_sdk-buildroot/bin/arm-buildroot-linux-gnueabihf-gcc
+arm-buildroot-linux-gnueabihf-gcc.br_real (Buildroot 2020.02-gee85cab) 7.5.0
+[build] 产物: build/imx6ull/hello_imx6ull
+[deploy] 已推送 build/imx6ull/hello_imx6ull -> root@192.168.137.110:/opt/edge-ai-safety-monitor/
+hello from imx6ull target
+```
+
+说明：`scripts/deploy_imx6ull.sh` 已支持从本地 `config/inventory.yaml` 读取可选 `imx6ull.password`，并通过 `sshpass -e` 使用密码；密码不会出现在脚本命令参数或本记录中。
+
 ## i.MX6ULL 网络状态摘要
 
 以下为本轮开始前用户提供的人工已验证 B 方案网络状态，本轮未能通过 SSH 复测：
@@ -171,8 +222,4 @@ PC 侧结论：以太网口已 Up，但未收到 i.MX6ULL `192.168.137.110` 的 
 
 ## 当前阻塞
 
-Task02 的 SDK 与交叉编译门槛已通过；`scp` 与板端运行门槛未通过。需要恢复 PC/WSL 到 i.MX6ULL `192.168.137.110:22` 的连通性后重跑：
-
-```bash
-scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run
-```
+Task02 当前无阻塞。GPIO/I2C/PWM/PCA9685/MOS/云台/V4L2/RKNN 均未在本记录中验证，留待 Task03 以后。
