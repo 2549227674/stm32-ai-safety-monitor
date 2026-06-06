@@ -43,7 +43,7 @@ Task03-A GPIO 输入验证已完成：板端 libgpiod 工具缺失，已采用 `
 
 Task03-B I2C/PCA9685 地址验证已完成：PCA9685 逻辑侧接 J5 I2C，`/dev/i2c-0` 上 `0x40` ACK；证据见 `tests/imx6ull/2026-06-06_i2c_pca9685_probe.md`。本轮未接 PCA9685 `V+`、未接舵机、未输出 PWM。
 
-Task03-C 下一步为空载 PWM 逻辑分析仪验证；PWM/MG90/MOS 仍未完成。
+Task03-C 空载 PWM 软件准备已完成：`pca9685_pwm_test` 已构建、部署并在板端运行一次，按 1.0/1.5/2.0ms 三组配置输出 channel 0 空载 PWM；证据见 `tests/imx6ull/2026-06-06_pca9685_pwm_empty_load.md`。当前等待用户补充逻辑分析仪频率、脉宽和截图；在此之前 PWM 不写已通过。MG90/MOS 仍未完成。
 
 后续阻塞项仍包括 OPi5 盘点与最终 Dashboard 部署决策。
 

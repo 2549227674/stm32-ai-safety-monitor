@@ -98,4 +98,5 @@
 - GPIO 输入已通过 Task03-A。
 - J5 pin 1 是 `VDD_5V`，只能作为 PIR VCC 等电源使用，不得直接接入 GPIO。
 - Task03-B I2C/PCA9685 地址验证已通过：PCA9685 逻辑侧接 J5 pin 3/2/7/8，`/dev/i2c-0` 上 `0x40` ACK。
-- 本轮未接 PCA9685 `V+`、未接 MG90、未输出 PWM；PWM/MG90/MOS 本文未标记通过。
+- Task03-C 空载 PWM 软件准备已完成：`pca9685_pwm_test` 已让 PCA9685 channel 0 按 1.0/1.5/2.0ms 配置运行一次。
+- 本轮未接 PCA9685 `V+`、未接 MG90；PWM 波形仍需用户用逻辑分析仪确认，PWM/MG90/MOS 本文未标记通过。

@@ -41,7 +41,7 @@ i2cdetect -y <I2C_BUS_TODO_FILL>
 
 - [x] GPIO 输入能读到变化。已完成 Task03-A：PIR / HC-SR501 DO -> J5 D0 / `CSI_DATA0` / `gpio117`，`gpio_test --sysfs 117 --watch` 可读到 0/1 变化。
 - [x] I2C 能看到目标地址。已完成 Task03-B：PCA9685 逻辑侧接 J5 I2C，`/dev/i2c-0` 上 `0x40` ACK；未输出 PWM。
-- [ ] PWM 波形可用逻辑分析仪观察。
+- [ ] PWM 波形可用逻辑分析仪观察。Task03-C 软件准备已完成，`pca9685_pwm_test` 已运行；等待用户补充逻辑分析仪结果。
 - [ ] MG90 能安全转动。
 - [ ] MOS 负载默认 OFF 且可控。
 
