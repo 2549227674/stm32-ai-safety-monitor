@@ -45,7 +45,7 @@ Task03-B I2C/PCA9685 地址验证已完成：PCA9685 逻辑侧接 J5 I2C，`/dev
 
 Task03-C 空载 PWM 软件准备已完成：`pca9685_pwm_test` 已构建、部署并在板端运行一次，按 50Hz / prescale 121 / channel0 1.0ms、1.5ms、2.0ms 三组配置输出空载 PWM；证据见 `tests/imx6ull/2026-06-06_pca9685_pwm_empty_load.md`。用户决定跳过逻辑分析仪波形实测，不再等待截图；Task03-C 仅标记为软件准备完成，不写 PWM 波形已通过。
 
-Task03-D 舵机测试已通过：单舵机链路正常；双舵机同步动作有 5V 压降，改为分时模式后 CH0/CH1 各自 1100→1900us 大幅动作通过，无压降/抖动/卡死/掉线。证据见 `tests/imx6ull/2026-06-06_pca9685_servo_small_angle.md`。MOS 仍未完成。
+Task03-D MG90S 舵机测试已通过：单 MG90S 链路正常；双 MG90S 同步动作有 5V 压降，改为分时模式后 CH0/CH1 各自 1100→1900us 大幅动作通过，无压降/抖动/卡死/掉线。后续 Task08 云台巡检优先采用分时策略。证据见 `tests/imx6ull/2026-06-06_pca9685_servo_small_angle.md`。MOS 仍未完成。
 
 后续阻塞项仍包括 OPi5 盘点与最终 Dashboard 部署决策。
 
