@@ -39,7 +39,7 @@ i2cdetect -y <I2C_BUS_TODO_FILL>
 
 ## 验收标准
 
-- [ ] GPIO 输入能读到变化。
+- [x] GPIO 输入能读到变化。已完成 Task03-A：PIR / HC-SR501 DO -> J5 D0 / `CSI_DATA0` / `gpio117`，`gpio_test --sysfs 117 --watch` 可读到 0/1 变化。
 - [ ] I2C 能看到目标地址。
 - [ ] PWM 波形可用逻辑分析仪观察。
 - [ ] MG90 能安全转动。

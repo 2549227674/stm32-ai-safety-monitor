@@ -1,20 +1,19 @@
-# 2026-06-06 Task03-A GPIO 输入验证准备记录
+# 2026-06-06 Task03-A GPIO 输入验证记录
 
 ## 1. 分支与提交
 
 - 分支：`migration/imx6ull-opi5-edge-ai`
 - 当前基线提交：`be1cdc5`
-- 当前阶段：Task03-A GPIO 输入验证准备
+- 当前阶段：Task03-A GPIO 输入验证
 
 ## 2. 结论
 
-- 本轮只完成 GPIO 输入验证的软件准备和盘点记录模板。
+- Task03-A GPIO 输入验证已通过：`gpio117` 能稳定读到 PIR / HC-SR501 DO 的 0/1 变化。
 - 默认设备树已恢复为 `100ask_imx6ull-14x14.dtb`；原 `imx6ull-100ask-custom.dtb` 仅保留备用。
 - 板端未安装 `gpiodetect`、`gpioinfo`、`gpioget`，本轮使用 `/sys/class/gpio` fallback。
 - 已新增并交叉编译 `gpio_test`，程序只做输入读取，不做输出驱动。
 - 已部署到 i.MX6ULL：`/opt/edge-ai-safety-monitor/gpio_test`
-- `gpio117` 可读，当前默认 `value=0`；短接 GND 不产生变化，原因是当前接法缺少 10k 上拉或稳定 3.3V DO 输入。
-- 外部 GPIO 输入实测暂缓，不算失败；只有补齐上拉/稳定输入源并贴回 0/1 变化后才可记为通过。
+- 裸门磁/裸按键因无 10k 上拉暂未测；10k 上拉仅作为裸门磁/裸按键方案的备用需求。
 - 未验证 I2C/PCA9685/PWM/MG90/MOS。
 
 ## 3. 板端 GPIO 工具检查
@@ -120,47 +119,53 @@ ssh root@192.168.137.110 "ls -l /opt/edge-ai-safety-monitor/gpio_test"
 /opt/edge-ai-safety-monitor/gpio_test
 ```
 
-## 7. 用户待手动验证项
+## 7. GPIO 输入实测
 
-本轮没有猜测 GPIO 编号，也没有运行输入读取程序。请用户选择一个安全输入源，建议优先使用门磁或板载/外接按键；确认接线后再运行读取。
+### 7.1 设备树与板端基线
 
-当前补充状态：
-
-- 默认 dtb：`100ask_imx6ull-14x14.dtb`
+- U-Boot `fdt_file`：`100ask_imx6ull-14x14.dtb`
+- 板端 model：`Freescale i.MX6 ULL 14x14 EVK Board`
 - 备用 custom dtb：`imx6ull-100ask-custom.dtb`
-- `gpio117`：可读，默认 `value=0`
-- 短接 GND：无 0/1 变化
-- 暂缓原因：缺少 10k 上拉或稳定 3.3V DO 输入
-- 结论：外部 GPIO 输入待补测，不标记已通过
+
+### 7.2 输入源与接线
 
 | 项目 | 记录 |
 |---|---|
-| 输入源 | 门磁 / 按键 |
-| 接线 GPIO | TODO |
-| 空闲值 | TODO |
-| 触发值 | TODO |
-| 是否稳定 | TODO |
+| 输入源 | PIR / HC-SR501 |
+| PIR VCC | J5 pin 1 `VDD_5V` |
+| PIR GND | J5 pin 2 `GND` |
+| PIR OUT/DO | J5 pin 15 `D0` / `CSI_DATA0` / `gpio117` |
+| 空闲值 | `0` |
+| 触发值 | `1` |
+| 是否稳定 | 是，能连续读到 0/1 变化 |
 
-建议命令：
+安全说明：J5 pin 1 是 5V 电源脚，只用于 PIR 模块 VCC；不得把 J5 pin 1 或任何 5V 直接接入 GPIO。
+
+### 7.3 测试命令
 
 ```bash
 ssh root@192.168.137.110
 cd /opt/edge-ai-safety-monitor
-./gpio_test --sysfs <GPIO_NUM> --watch
+./gpio_test --sysfs 117 --watch
 ```
 
-如果用户确认的是 gpiochip base + line，也可以使用：
+### 7.4 实测输出摘要
 
-```bash
-./gpio_test --gpiochip gpiochip<BASE> --line <LINE> --watch
+```text
+seq=0..11 gpio=117 value=0
+seq=12..17 gpio=117 value=1
+seq=18..39 gpio=117 value=0
+seq=40..45 gpio=117 value=1
+seq=46..56 gpio=117 value=0
 ```
 
-期望现象：
+### 7.5 结论
 
-- 空闲状态持续打印同一个 `value=0` 或 `value=1`。
-- 改变门磁/按键状态后，`value` 在 `0` 与 `1` 之间变化。
-- 只有用户贴回真实 0/1 变化输出后，才能把 GPIO 输入写成已验证。
+- `gpio117` 能稳定读到 PIR DO 的 0/1 变化。
+- Task03-A GPIO 输入验证通过。
+- 裸门磁/裸按键因无 10k 上拉暂未测，但 PIR DO 已完成 GPIO 输入验证。
+- 不再要求 10k 上拉；10k 上拉仅作为裸门磁/裸按键方案的备用需求。
 
 ## 8. 本轮边界
 
-本记录当前只完成 GPIO 输入验证准备；未验证 I2C/PCA9685/PWM/MG90/MOS。
+本记录当前只完成 GPIO 输入验证；未验证 I2C/PCA9685/PWM/MG90/MOS。

@@ -56,7 +56,7 @@
 | 4 | `GND2` | `GND` | 地。 |
 | 7 | `I2C_SDA` | `I2C1_SDA` | 后续 I2C 参考，本轮不验证 I2C。 |
 | 8 | `I2C_SCL` | `I2C1_SCL` | 后续 I2C 参考，本轮不验证 I2C。 |
-| 15 | `D0` | `CSI_DATA0` | GPIO 候选：当前用户记录为 `gpio117`，需 10k 上拉或稳定 3.3V DO。 |
+| 15 | `D0` | `CSI_DATA0` | GPIO 已验证：PIR / HC-SR501 DO 接入 `gpio117`，可读到稳定 0/1 输入变化。 |
 | 16 | `D1` | `CSI_DATA1` | GPIO 备选：当前用户记录为 `gpio118`。 |
 | 17 | `D2` | `CSI_DATA2` | GPIO 备选：当前用户记录为 `gpio119`。 |
 | 18 | `D3` | `CSI_DATA3` | 不优先，保留 CSI 数据线参考。 |
@@ -69,7 +69,7 @@
 
 | 候选 | Linux sysfs GPIO | 建议等级 | 使用前提 |
 |---|---:|---|---|
-| J5 D0 / `CSI_DATA0` | `gpio117` | 候选 | 需要 10k 上拉或稳定 3.3V DO 输入；当前短接 GND 无变化，外部输入实测暂缓。 |
+| J5 D0 / `CSI_DATA0` | `gpio117` | 已验证 | PIR / HC-SR501 DO 已验证 0/1 输入变化；裸门磁/裸按键仍需 10k 上拉或其他明确电平源。 |
 | J5 D1 / `CSI_DATA1` | `gpio118` | 备选 | 需确认 pinmux 未被 CSI/摄像头占用，并使用可靠上拉/下拉。 |
 | J5 D2 / `CSI_DATA2` | `gpio119` | 备选 | 需确认 pinmux 未被 CSI/摄像头占用，并使用可靠上拉/下拉。 |
 | `GPIO1_IO02` | `gpio2` | 候选 | 需确认物理可接位置、电平和默认 pinmux。 |
@@ -93,7 +93,8 @@
 - `gpio_test` 软件准备完成。
 - 默认 dtb 已恢复为 `100ask_imx6ull-14x14.dtb`。
 - sysfs GPIO fallback 可用。
-- 外部 GPIO 输入因缺少 10k 上拉电阻暂缓。
-- `gpio117` 当前默认 `value=0`，短接 GND 不产生变化；该现象不算输入验证失败，只说明当前接法无法产生高低变化。
-- 不标记 GPIO 输入已通过。
-- 不进入 Task03-B；后续需先补齐安全输入源、上拉/下拉和真实 0/1 变化证据。
+- PIR / HC-SR501 DO 已接入 J5 D0 / `CSI_DATA0` / `gpio117` 并验证 0/1 输入变化。
+- 裸门磁/裸按键因无 10k 上拉暂未测；10k 上拉仅作为裸门磁/裸按键方案的备用需求。
+- GPIO 输入已通过 Task03-A。
+- J5 pin 1 是 `VDD_5V`，只能作为 PIR VCC 等电源使用，不得直接接入 GPIO。
+- 可进入 Task03-B I2C/PCA9685 地址验证；I2C/PWM/MG90/MOS 本文未标记通过。
