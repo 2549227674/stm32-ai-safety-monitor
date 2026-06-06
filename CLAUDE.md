@@ -24,7 +24,7 @@
 | 新主线 | i.MX6ULL Pro + Orange Pi 5 + Flask |
 | 旧主线 | STM32 + ESP32-CAM 归档为 legacy |
 | 当前执行器 | 本地 Codex / Claude Code |
-| 首要目标 | Task03-D 分时双舵机测试已通过；可进入 Task03 MOS 或 Task08 巡检 |
+| 首要目标 | Task03 收尾完成（MOS 跳过）；下一步 Task04 V4L2 USB 摄像头抓拍 |
 
 ## 2. 项目主线与三机角色
 

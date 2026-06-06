@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | P0 | Day 1 | Task01 仓库迁移与 legacy 归档 | 新目录、legacy README、迁移决策记录 | 已完成：旧代码归档，新主线目录存在 |
 | P1 | Day 1–2 | Task02 WSL/i.MX SDK/SSH | hello、build/deploy 脚本 | 已完成：板端运行 hello |
-| P2 | Day 3–4 | Task03 GPIO/I2C/PWM/MOS | 单模块测试程序、测试记录 | GPIO/I2C/PWM/MOS 至少各有一项证据 |
+| P2 | Day 3–4 | Task03 GPIO/I2C/PWM/云台 | 单模块测试程序、测试记录 | GPIO 输入、I2C/PCA9685、MG90S 云台至少具备真实证据；MOS 作为扩展项保留 |
 | P3 | Day 5 | Task04 V4L2 抓拍 | `v4l2_capture`、图片、格式记录 | i.MX 生成可打开图片 |
 | P4 | Day 6–7 | Task05 OPi5 AI 服务 | mock/RKNN 服务 | curl 上传图像返回 AI JSON |
 | P5 | Day 8 | Task06 Flask 扩展 | DB 兼容、Dashboard AI 区域 | 新旧事件均可显示 |
@@ -45,7 +45,11 @@ Task03-B I2C/PCA9685 地址验证已完成：PCA9685 逻辑侧接 J5 I2C，`/dev
 
 Task03-C 空载 PWM 软件准备已完成：`pca9685_pwm_test` 已构建、部署并在板端运行一次，按 50Hz / prescale 121 / channel0 1.0ms、1.5ms、2.0ms 三组配置输出空载 PWM；证据见 `tests/imx6ull/2026-06-06_pca9685_pwm_empty_load.md`。用户决定跳过逻辑分析仪波形实测，不再等待截图；Task03-C 仅标记为软件准备完成，不写 PWM 波形已通过。
 
-Task03-D MG90S 舵机测试已通过：单 MG90S 链路正常；双 MG90S 同步动作有 5V 压降，改为分时模式后 CH0/CH1 各自 1100→1900us 大幅动作通过，无压降/抖动/卡死/掉线。后续 Task08 云台巡检优先采用分时策略。证据见 `tests/imx6ull/2026-06-06_pca9685_servo_small_angle.md`。MOS 仍未完成。
+Task03-D MG90S 舵机测试已通过：单 MG90S 链路正常；双 MG90S 同步动作有 5V 压降，改为分时模式后 CH0/CH1 各自 1100→1900us 大幅动作通过，无压降/抖动/卡死/掉线。后续 Task08 云台巡检优先采用分时策略。证据见 `tests/imx6ull/2026-06-06_pca9685_servo_small_angle.md`。
+
+Task03-E MOS 低压负载本轮跳过：XY-MOS 模块控制端 GND/TRIG-PWM 为圆孔焊盘，需额外焊接排针或飞线；当前 MVP 不依赖低压负载演示，保留为后续扩展项。证据见 `tests/imx6ull/2026-06-06_mos_skip_decision.md`。
+
+Task03 总结：GPIO 输入通过、I2C/PCA9685 地址通过、MG90S 分时云台通过、PWM 波形实测跳过、MOS 跳过。下一步进入 Task04 V4L2 USB 摄像头抓拍。
 
 后续阻塞项仍包括 OPi5 盘点与最终 Dashboard 部署决策。
 

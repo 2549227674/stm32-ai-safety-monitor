@@ -43,7 +43,7 @@ i2cdetect -y <I2C_BUS_TODO_FILL>
 - [x] I2C 能看到目标地址。已完成 Task03-B：PCA9685 逻辑侧接 J5 I2C，`/dev/i2c-0` 上 `0x40` ACK；未输出 PWM。
 - [ ] PWM 波形可用逻辑分析仪观察。Task03-C 软件准备已完成，`pca9685_pwm_test` 已运行；用户决定跳过波形实测，因此不标记 PWM 波形已通过。
 - [x] MG90S 能安全转动。Task03-D 分时双舵机测试已通过：CH0/CH1 各自 1100→1900us 大幅动作正常，无 5V 压降、无抖动/卡死/掉线。后续 Task08 云台巡检优先采用分时策略。
-- [ ] MOS 负载默认 OFF 且可控。
+- [ ] MOS 负载默认 OFF 且可控。**本轮跳过**：XY-MOS 控制端 GND/TRIG-PWM 为圆孔焊盘，需焊接排针；当前 MVP 不依赖低压负载，保留为扩展项。不标记通过。
 
 ## 禁止事项
 
@@ -57,3 +57,13 @@ i2cdetect -y <I2C_BUS_TODO_FILL>
 - 回填 docs/03、docs/11、AGENTS.md。
 - 保存波形截图路径。
 - 更新 DEVPLAN P2。
+
+## Task03 收尾状态
+
+| 子任务 | 状态 | 说明 |
+|---|---|---|
+| Task03-A GPIO 输入 | 已通过 | PIR / HC-SR501 DO -> J5 D0 / gpio117，读到 0/1 变化 |
+| Task03-B I2C/PCA9685 | 已通过 | /dev/i2c-0 上 0x40 ACK |
+| Task03-C 空载 PWM | 软件准备完成 | pca9685_pwm_test 已运行；用户跳过波形实测 |
+| Task03-D MG90S 云台 | 已通过 | 分时模式 1100→1900us 大幅动作，无 5V 压降 |
+| Task03-E MOS 负载 | 本轮跳过 | XY-MOS 控制端需焊接；MVP 不依赖低压负载，保留为扩展项 |
