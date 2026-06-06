@@ -37,7 +37,11 @@
 
 ## 4. 当前阻塞项
 
-Task01、Task02 已完成。Task02 已验证 i.MX6ULL SDK、inventory 读取、hello 交叉编译、WSL/PC SSH、scp 与板端运行。下一阻塞项转为 OPi5 盘点与最终 Dashboard 部署决策。
+Task01、Task02 已完成。Task02 已验证 i.MX6ULL SDK、inventory 读取、hello 交叉编译、WSL/PC SSH、scp 与板端运行。
+
+Task03-A GPIO 输入验证准备已完成：板端 libgpiod 工具缺失，已采用 `/sys/class/gpio` fallback，`gpio_test` 已交叉编译并部署到 i.MX6ULL。当前等待用户选择门磁或按键等安全输入源，贴回空闲/触发 0/1 变化输出；在此之前 GPIO 输入不得写成已通过。
+
+后续阻塞项仍包括 OPi5 盘点与最终 Dashboard 部署决策。
 
 
 > **[CLAUDE_CODE_TODO | INVESTIGATE]** 盘点 OPi5 与 PC 上已有 RKNN 仓库
