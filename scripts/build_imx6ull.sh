@@ -4,6 +4,7 @@
 #   默认编译 edge/imx6ull-controller/src/hello.c -> build/imx6ull/hello_imx6ull
 #   便捷目标: scripts/build_imx6ull.sh gpio_test -> build/imx6ull/gpio_test
 #   便捷目标: scripts/build_imx6ull.sh pca9685_pwm_test -> build/imx6ull/pca9685_pwm_test
+#   便捷目标: scripts/build_imx6ull.sh pca9685_servo_test -> build/imx6ull/pca9685_servo_test
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib_inventory.sh
@@ -22,6 +23,10 @@ case "$TARGET_OR_SRC" in
   pca9685_pwm_test)
     SRC="edge/imx6ull-controller/src/pca9685_pwm_test.c"
     OUT_NAME="${2:-pca9685_pwm_test}"
+    ;;
+  pca9685_servo_test)
+    SRC="edge/imx6ull-controller/src/pca9685_servo_test.c"
+    OUT_NAME="${2:-pca9685_servo_test}"
     ;;
   *)
     SRC="$TARGET_OR_SRC"
