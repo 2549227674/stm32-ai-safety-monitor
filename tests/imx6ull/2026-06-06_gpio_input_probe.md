@@ -9,9 +9,12 @@
 ## 2. 结论
 
 - 本轮只完成 GPIO 输入验证的软件准备和盘点记录模板。
+- 默认设备树已恢复为 `100ask_imx6ull-14x14.dtb`；原 `imx6ull-100ask-custom.dtb` 仅保留备用。
 - 板端未安装 `gpiodetect`、`gpioinfo`、`gpioget`，本轮使用 `/sys/class/gpio` fallback。
 - 已新增并交叉编译 `gpio_test`，程序只做输入读取，不做输出驱动。
 - 已部署到 i.MX6ULL：`/opt/edge-ai-safety-monitor/gpio_test`
+- `gpio117` 可读，当前默认 `value=0`；短接 GND 不产生变化，原因是当前接法缺少 10k 上拉或稳定 3.3V DO 输入。
+- 外部 GPIO 输入实测暂缓，不算失败；只有补齐上拉/稳定输入源并贴回 0/1 变化后才可记为通过。
 - 未验证 I2C/PCA9685/PWM/MG90/MOS。
 
 ## 3. 板端 GPIO 工具检查
@@ -120,6 +123,15 @@ ssh root@192.168.137.110 "ls -l /opt/edge-ai-safety-monitor/gpio_test"
 ## 7. 用户待手动验证项
 
 本轮没有猜测 GPIO 编号，也没有运行输入读取程序。请用户选择一个安全输入源，建议优先使用门磁或板载/外接按键；确认接线后再运行读取。
+
+当前补充状态：
+
+- 默认 dtb：`100ask_imx6ull-14x14.dtb`
+- 备用 custom dtb：`imx6ull-100ask-custom.dtb`
+- `gpio117`：可读，默认 `value=0`
+- 短接 GND：无 0/1 变化
+- 暂缓原因：缺少 10k 上拉或稳定 3.3V DO 输入
+- 结论：外部 GPIO 输入待补测，不标记已通过
 
 | 项目 | 记录 |
 |---|---|

@@ -39,7 +39,7 @@
 
 Task01、Task02 已完成。Task02 已验证 i.MX6ULL SDK、inventory 读取、hello 交叉编译、WSL/PC SSH、scp 与板端运行。
 
-Task03-A GPIO 输入验证准备已完成：板端 libgpiod 工具缺失，已采用 `/sys/class/gpio` fallback，`gpio_test` 已交叉编译并部署到 i.MX6ULL。当前等待用户选择门磁或按键等安全输入源，贴回空闲/触发 0/1 变化输出；在此之前 GPIO 输入不得写成已通过。
+Task03-A GPIO 输入验证准备已完成：板端 libgpiod 工具缺失，已采用 `/sys/class/gpio` fallback，`gpio_test` 已交叉编译并部署到 i.MX6ULL。100ask i.MX6ULL V1.1 原理图引脚参考已整理到 `docs/reference/hardware/100ask_imx6ull_pinmap.md`。当前 `gpio117` 可读但默认 `value=0`，短接 GND 无变化；因缺少 10k 上拉或稳定 3.3V DO 输入，外部输入暂缓补测。在贴回真实 0/1 变化输出前，GPIO 输入不得写成已通过。
 
 后续阻塞项仍包括 OPi5 盘点与最终 Dashboard 部署决策。
 
