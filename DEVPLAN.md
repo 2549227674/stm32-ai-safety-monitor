@@ -41,7 +41,9 @@ Task01、Task02 已完成。Task02 已验证 i.MX6ULL SDK、inventory 读取、h
 
 Task03-A GPIO 输入验证已完成：板端 libgpiod 工具缺失，已采用 `/sys/class/gpio` fallback，`gpio_test` 已交叉编译并部署到 i.MX6ULL。100ask i.MX6ULL V1.1 原理图引脚参考已整理到 `docs/reference/hardware/100ask_imx6ull_pinmap.md`。PIR / HC-SR501 已接入 J5 D0 / `CSI_DATA0` / `gpio117`，能稳定读到 0/1 变化；证据见 `tests/imx6ull/2026-06-06_gpio_input_probe.md`。裸门磁/裸按键因无 10k 上拉暂未测，但 PIR DO 已完成 GPIO 输入验证。
 
-Task03-B 下一步为 I2C/PCA9685 地址验证；I2C/PWM/MG90/MOS 仍未完成。
+Task03-B I2C/PCA9685 地址验证已完成：PCA9685 逻辑侧接 J5 I2C，`/dev/i2c-0` 上 `0x40` ACK；证据见 `tests/imx6ull/2026-06-06_i2c_pca9685_probe.md`。本轮未接 PCA9685 `V+`、未接舵机、未输出 PWM。
+
+Task03-C 下一步为空载 PWM 逻辑分析仪验证；PWM/MG90/MOS 仍未完成。
 
 后续阻塞项仍包括 OPi5 盘点与最终 Dashboard 部署决策。
 

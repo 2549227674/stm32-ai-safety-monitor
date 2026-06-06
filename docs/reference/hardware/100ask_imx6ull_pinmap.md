@@ -54,8 +54,8 @@
 | 2 | `GND1` | `GND` | 地。 |
 | 3 | `VDD_3V3` | `VDD_3V3` | 3.3V 电源脚，只作供电参考。 |
 | 4 | `GND2` | `GND` | 地。 |
-| 7 | `I2C_SDA` | `I2C1_SDA` | 后续 I2C 参考，本轮不验证 I2C。 |
-| 8 | `I2C_SCL` | `I2C1_SCL` | 后续 I2C 参考，本轮不验证 I2C。 |
+| 7 | `I2C_SDA` | `I2C1_SDA` | Task03-B 已验证：PCA9685 SDA 接入后在 `/dev/i2c-0` 扫到 `0x40`。 |
+| 8 | `I2C_SCL` | `I2C1_SCL` | Task03-B 已验证：PCA9685 SCL 接入后在 `/dev/i2c-0` 扫到 `0x40`。 |
 | 15 | `D0` | `CSI_DATA0` | GPIO 已验证：PIR / HC-SR501 DO 接入 `gpio117`，可读到稳定 0/1 输入变化。 |
 | 16 | `D1` | `CSI_DATA1` | GPIO 备选：当前用户记录为 `gpio118`。 |
 | 17 | `D2` | `CSI_DATA2` | GPIO 备选：当前用户记录为 `gpio119`。 |
@@ -97,4 +97,5 @@
 - 裸门磁/裸按键因无 10k 上拉暂未测；10k 上拉仅作为裸门磁/裸按键方案的备用需求。
 - GPIO 输入已通过 Task03-A。
 - J5 pin 1 是 `VDD_5V`，只能作为 PIR VCC 等电源使用，不得直接接入 GPIO。
-- 可进入 Task03-B I2C/PCA9685 地址验证；I2C/PWM/MG90/MOS 本文未标记通过。
+- Task03-B I2C/PCA9685 地址验证已通过：PCA9685 逻辑侧接 J5 pin 3/2/7/8，`/dev/i2c-0` 上 `0x40` ACK。
+- 本轮未接 PCA9685 `V+`、未接 MG90、未输出 PWM；PWM/MG90/MOS 本文未标记通过。
