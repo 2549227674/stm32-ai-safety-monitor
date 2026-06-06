@@ -1,6 +1,6 @@
 # CLAUDE_CODE_TODO_INDEX.md — 全部待办总表
 
-生成时间：2026-06-04T18:26:44
+生成时间：2026-06-06T14:30:00
 
 本文件由文档包中的 `[CLAUDE_CODE_TODO | 类型]` 标记汇总生成。完成待办后，请回填原文件并重新生成本索引。
 
@@ -16,19 +16,17 @@
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
 |---|---|---|---|
-| `CLAUDE.md:58` | 补齐 WSL SDK 环境变量与工具链三元组 | 在 WSL 中找到 SDK 的 `environment-setup-*` 文件，确认 `$CC`、`$CXX`、`$SDKTARGETSYSROOT`。 | `source <SDK_ENV>` 后 `$CC --version` 可输出真实交叉编译器版本，hello 可编译。 |
-| `CLAUDE_CODE_EXECUTION_GUIDE.md:70` | 创建本地 `inventory.yaml` 并验证 SSH | 复制 `config/inventory.example.yaml` 为本地 `inventory.yaml`；填入三机地址；运行 SSH smoke test。 | PC/WSL 能分别 SSH 到 i.MX6ULL 与 OPi5；真实值没有提交到 git。 |
-| `CLAUDE_CODE_TASK_02_wsl_imx6ull_toolchain_ssh.md:11` | 填写 SDK 路径与 i.MX6ULL SSH 信息 | 填写 `WSL_SDK_ENV=<TODO:FILL>`、`IMX_USER=<TODO:FILL>`、`IMX_IP=<TODO:FILL>`、`IMX_DEPLOY_DIR=<TODO:FILL>`。 | 能 source SDK、SSH 登录板端。 |
-| `DEVPLAN.md:40` | 确认 i.MX6ULL SDK 与 SSH 信息 | 用户或 Claude Code 在本地填写 SDK 路径、板卡 IP、用户名、目标部署目录。 | hello 可交叉编译并推送运行。 |
 | `README.md:78` | 填写三机局域网地址与 SSH 用户 | 创建 `config/inventory.example.yaml`，本地复制为不入库的 `inventory.yaml` 后填入 `IMX_IP=<TODO:FILL>`、`OPI5_IP=<TODO:FILL>`、`BACKEND_HOST=<TODO:FILL>`。 | `ssh <USER>@<IMX_IP>` 与 `ssh <USER>@<OPI5_IP>` 均能登录；真实值只保存在本地。 |
 | `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:46` | 填写 i.MX6ULL GPIO chip/line 与有效电平 | 在板端运行 `gpiodetect`、`gpioinfo`，结合原理图/扩展板丝印填写表格。 | 每一路能用 `gpioget` 或测试程序读到高低变化。 |
-| `docs/04_软件架构与模块划分_Linux边缘控制版.md:87` | 填写 SDK 环境脚本、工具链三元组、sysroot | 在 WSL 中定位 `environment-setup-*`，确认 `$CC`、`$CXX`、`$SDKTARGETSYSROOT`，写入本地配置。 | hello 能交叉编译并在 i.MX6ULL 运行。 |
 
 ## VERIFY
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
 |---|---|---|---|
 | `AGENTS.md:40` | 逐项验证新硬件状态表 | 按 Task02–08 执行真实命令和硬件测试，逐项把“待验证”改为“已验证/失败/绕过”。 | 每项都有 tests 记录、命令输出或照片/波形证据。 |
+| `CLAUDE_CODE_EXECUTION_GUIDE.md:70` | 恢复并复测本地 `inventory.yaml` 的 SSH 链路 | 恢复板端网络后，用 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run` 复测 i.MX6ULL；Task05 再复测 OPi5。 | PC/WSL 能 SSH 到 i.MX6ULL 并运行 hello；OPi5 SSH 在 Task05 有记录；真实值没有提交到 git。 |
+| `CLAUDE_CODE_TASK_02_wsl_imx6ull_toolchain_ssh.md:11` | 恢复并复测 i.MX6ULL SSH / hello 板端运行 | 恢复板端网络后运行 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run`。 | 板端输出 `hello from imx6ull target`。 |
+| `DEVPLAN.md:42` | 恢复并复测 i.MX6ULL SSH 部署链路 | 恢复 `ssh` 到 i.MX6ULL 后运行 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run`。 | `hello_imx6ull` 推送到板端并输出 `hello from imx6ull target`。 |
 | `CLAUDE_CODE_TASK_01_repo_migration_legacy_archive.md:11` | 确认当前仓库工作区是否干净 | 运行 `git status` 并决定是否先提交/暂存/备份。 | 工作区无意外未提交修改，或已明确保留。 |
 | `common/contracts/README.md:19` | 从 docs/07 生成或同步 JSON Schema | Task06/07 后根据实际 API 生成 `event_v1.schema.json` 和 `infer_v1.schema.json`。 | schema 能验证测试 payload。 |
 | `docs/00_README.md:72` | 迁移分支落地后核对 docs/00 链接 | 解压本包到迁移分支后，运行 `find docs -maxdepth 2 -type f` 并核对文件名。 | 所有链接路径存在，无 `docs/15`。 |
@@ -36,6 +34,7 @@
 | `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:64` | 确认 PCA9685 I2C 地址和电平兼容性 | 运行 `i2cdetect -y <bus>`，用万用表确认 VCC/V+，必要时使用电平转换。 | `i2cdetect` 能看到设备地址，空载 PWM 有逻辑分析仪证据。 |
 | `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:81` | 确认 MOS 模块接线和默认 OFF | 先不接负载，测 GPIO 默认电平；再接 LED/小风扇验证；最后再接泵。 | 上电未运行程序时负载不动作，程序控制后可开关。 |
 | `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:96` | 确认 Orange Pi 5 系统、供电和网络状态 | 记录系统版本、Python 版本、rknn 依赖、IP、SSH 可用性；真实 IP 不入库。 | `ssh OPI5_USER@OPI5_IP`、`python3 --version`、`curl /health` 均有记录。 |
+| `docs/04_软件架构与模块划分_Linux边缘控制版.md:87` | 复测 i.MX6ULL 板端运行 hello | 恢复 SSH 后运行 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run`。 | hello 能在 i.MX6ULL 输出 `hello from imx6ull target`。 |
 | `docs/08_iMX6ULL视觉采集_云台_Web服务器方案.md:26` | 确认 V4L2 工具和设备节点 | 在板端安装/确认 v4l2 工具，运行 list-devices/list-formats-ext。 | 记录设备节点、格式、分辨率、命令输出。 |
 | `docs/10_设备健康监测与扩展传感器方案.md:22` | 确认 MPU6050 是否接入新硬件清单 | 用户决定是否纳入加分项；若纳入，确认 I2C 总线、地址、电源电压。 | 明确写成“纳入/不纳入最终演示”。 |
 | `docs/14_上报表内容与答辩摘要_端边AI版.md:52` | 最终提交前回填真实完成情况 | 根据 Task01–08 测试记录回填已完成项、未完成项和原因。 | 上报表内容与 tests 证据一致。 |

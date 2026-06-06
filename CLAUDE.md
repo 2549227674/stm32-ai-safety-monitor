@@ -55,11 +55,9 @@ cp config/inventory.example.yaml config/inventory.yaml
 # 编辑本地 inventory.yaml，禁止提交
 ```
 
-> **[CLAUDE_CODE_TODO | FILL]** 补齐 WSL SDK 环境变量与工具链三元组
-> - 为何 GPT 给不了：沙箱只能看到仓库，无法访问本地 i.MX6ULL SDK。
-> - 期望产物/操作：在 WSL 中找到 SDK 的 `environment-setup-*` 文件，确认 `$CC`、`$CXX`、`$SDKTARGETSYSROOT`。
-> - 回填位置：CLAUDE.md 第 5 节；Task02；docs/04 交叉编译小节
-> - 验收：`source <SDK_ENV>` 后 `$CC --version` 可输出真实交叉编译器版本，hello 可编译。
+Task02 已在 WSL 中确认 i.MX6ULL SDK 可交叉编译。当前 SDK 未提供 `environment-setup-*`，本地
+`config/inventory.yaml` 使用 `imx6ull.cc` 指向 `arm-buildroot-linux-gnueabihf-gcc`，`scripts/build_imx6ull.sh`
+已支持该 fallback。证据见 `tests/imx6ull/2026-06-06_toolchain_ssh.md`。
 
 
 ## 6. 端边 Contract 原则

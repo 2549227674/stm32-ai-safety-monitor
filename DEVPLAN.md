@@ -9,7 +9,7 @@
 | 阶段 | 时间建议 | 任务 | 交付物 | 通过门槛 |
 |---|---|---|---|---|
 | P0 | Day 1 | Task01 仓库迁移与 legacy 归档 | 新目录、legacy README、迁移决策记录 | 已完成：旧代码归档，新主线目录存在 |
-| P1 | Day 1–2 | Task02 WSL/i.MX SDK/SSH | hello、build/deploy 脚本 | 板端运行 hello |
+| P1 | Day 1–2 | Task02 WSL/i.MX SDK/SSH | hello、build/deploy 脚本 | 进行中：SDK/hello 编译已通过，板端运行待 SSH 恢复 |
 | P2 | Day 3–4 | Task03 GPIO/I2C/PWM/MOS | 单模块测试程序、测试记录 | GPIO/I2C/PWM/MOS 至少各有一项证据 |
 | P3 | Day 5 | Task04 V4L2 抓拍 | `v4l2_capture`、图片、格式记录 | i.MX 生成可打开图片 |
 | P4 | Day 6–7 | Task05 OPi5 AI 服务 | mock/RKNN 服务 | curl 上传图像返回 AI JSON |
@@ -37,13 +37,13 @@
 
 ## 4. 当前阻塞项
 
-Task01 已完成。当前主线从 Task02 开始，需要补齐 i.MX6ULL SDK、SSH、OPi5 盘点与最终 Dashboard 部署决策。
+Task01 已完成。Task02 中 i.MX6ULL SDK、inventory 读取、hello 交叉编译已通过；当前阻塞为本轮 WSL/Windows 均无法连通 i.MX6ULL SSH，需恢复链路后重跑部署。OPi5 盘点与最终 Dashboard 部署决策仍待后续任务处理。
 
-> **[CLAUDE_CODE_TODO | FILL]** 确认 i.MX6ULL SDK 与 SSH 信息
-> - 为何 GPT 给不了：没有 SDK 路径和板卡 SSH，Task02 无法开工。
-> - 期望产物/操作：用户或 Claude Code 在本地填写 SDK 路径、板卡 IP、用户名、目标部署目录。
+> **[CLAUDE_CODE_TODO | VERIFY]** 恢复并复测 i.MX6ULL SSH 部署链路
+> - 为何 GPT 给不了：本轮真实命令显示 WSL/Windows 到 i.MX6ULL SSH 不可达，需现场恢复板端网络或物理链路。
+> - 期望产物/操作：恢复 `ssh` 到 i.MX6ULL 后运行 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run`。
 > - 回填位置：DEVPLAN 第 4 节；Task02 前置条件
-> - 验收：hello 可交叉编译并推送运行。
+> - 验收：`hello_imx6ull` 推送到板端并输出 `hello from imx6ull target`。
 
 
 > **[CLAUDE_CODE_TODO | INVESTIGATE]** 盘点 OPi5 与 PC 上已有 RKNN 仓库

@@ -8,36 +8,30 @@
 
 Task01 已完成。需要 i.MX6ULL 上电、联网、SSH 可用，且本地有 SDK。
 
-> **[CLAUDE_CODE_TODO | FILL]** 填写 SDK 路径与 i.MX6ULL SSH 信息
-> - 为何 GPT 给不了：这些值只能在本地环境确认。
-> - 期望产物/操作：填写 `WSL_SDK_ENV=<TODO:FILL>`、`IMX_USER=<TODO:FILL>`、`IMX_IP=<TODO:FILL>`、`IMX_DEPLOY_DIR=<TODO:FILL>`。
+> **[CLAUDE_CODE_TODO | VERIFY]** 恢复并复测 i.MX6ULL SSH / hello 板端运行
+> - 为何 GPT 给不了：SDK 路径、CC、inventory 与 hello 交叉编译已由本地命令确认，但本轮 WSL/Windows 到 i.MX6ULL SSH 不可达。
+> - 期望产物/操作：恢复板端网络后运行 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run`。
 > - 回填位置：Task02 前置条件和命令
-> - 验收：能 source SDK、SSH 登录板端。
+> - 验收：板端输出 `hello from imx6ull target`。
 
 
 ## 操作步骤
 
-1. 在 WSL 中定位 SDK 环境脚本。
-2. source SDK。
-3. 新建 `hello.c`。
-4. 交叉编译。
-5. scp 到 i.MX6ULL。
-6. ssh 运行。
-7. 写部署脚本。
+1. 在 WSL 中定位 SDK 环境脚本或可用 `arm-buildroot-linux-gnueabihf-gcc`。（已完成：本 SDK 无 `environment-setup-*`，使用 `imx6ull.cc` fallback）
+2. source SDK 或配置 `CC`。（已完成）
+3. 新建 `hello.c`。（已完成）
+4. 交叉编译。（已完成）
+5. scp 到 i.MX6ULL。（本轮失败：SSH 不可达）
+6. ssh 运行。（待复测）
+7. 写部署脚本。（已完成：脚本从 `config/inventory.yaml` 读取）
 
 ## 命令骨架
 
 ```bash
-source <WSL_SDK_ENV_TODO_FILL>
-$CC --version
+scripts/build_imx6ull.sh
 mkdir -p build/imx6ull edge/imx6ull-controller/src
-cat > edge/imx6ull-controller/src/hello.c <<'EOF'
-#include <stdio.h>
-int main(void) { puts("hello from imx6ull target"); return 0; }
-EOF
-$CC edge/imx6ull-controller/src/hello.c -o build/imx6ull/hello_imx6ull
-scp build/imx6ull/hello_imx6ull <IMX_USER_TODO_FILL>@<IMX_IP_TODO_FILL>:<IMX_DEPLOY_DIR_TODO_FILL>/
-ssh <IMX_USER_TODO_FILL>@<IMX_IP_TODO_FILL> <IMX_DEPLOY_DIR_TODO_FILL>/hello_imx6ull
+file build/imx6ull/hello_imx6ull
+scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run
 ```
 
 ## 产出物
@@ -50,10 +44,10 @@ ssh <IMX_USER_TODO_FILL>@<IMX_IP_TODO_FILL> <IMX_DEPLOY_DIR_TODO_FILL>/hello_imx
 
 ## 验收标准
 
-- [ ] `$CC --version` 有真实输出。
+- [x] `$CC --version` 有真实输出。
 - [ ] 目标文件能在板端运行。
-- [ ] 测试记录包含命令与输出。
-- [ ] 真实 IP/用户名未提交。
+- [x] 测试记录包含命令与输出。
+- [x] 真实 IP/用户名未提交。
 
 ## 禁止事项
 

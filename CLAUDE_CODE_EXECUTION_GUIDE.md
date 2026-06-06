@@ -67,11 +67,11 @@ grep -RIn "\[ASSUMPTION" .
 | i.MX6ULL Pro | 本地安全控制、V4L2 抓拍、云台控制、上报事件 | `/opt/edge-ai-safety-monitor/` | `IMX_IP=<TODO:FILL>`、`IMX_USER=<TODO:FILL>` |
 | Orange Pi 5 | RKNN 推理服务、可选 Flask 最终部署 | `/opt/edge-ai-safety-monitor/opi5-ai/` | `OPI5_IP=<TODO:FILL>`、`OPI5_USER=<TODO:FILL>` |
 
-> **[CLAUDE_CODE_TODO | FILL]** 创建本地 `inventory.yaml` 并验证 SSH
-> - 为何 GPT 给不了：真实 IP、用户名、端口、密钥路径不能由沙箱确认，也不应入库。
-> - 期望产物/操作：复制 `config/inventory.example.yaml` 为本地 `inventory.yaml`；填入三机地址；运行 SSH smoke test。
+> **[CLAUDE_CODE_TODO | VERIFY]** 恢复并复测本地 `inventory.yaml` 的 SSH 链路
+> - 为何 GPT 给不了：本地 `inventory.yaml` 已填写并确认被 `.gitignore` 忽略，但本轮 WSL/Windows 到 i.MX6ULL SSH 不可达。
+> - 期望产物/操作：恢复板端网络后，用 `scripts/deploy_imx6ull.sh build/imx6ull/hello_imx6ull --run` 复测 i.MX6ULL；Task05 再复测 OPi5。
 > - 回填位置：CLAUDE_CODE_EXECUTION_GUIDE.md 第 4 节；Task02/05/07 命令占位符
-> - 验收：PC/WSL 能分别 SSH 到 i.MX6ULL 与 OPi5；真实值没有提交到 git。
+> - 验收：PC/WSL 能 SSH 到 i.MX6ULL 并运行 hello；OPi5 SSH 在 Task05 有记录；真实值没有提交到 git。
 
 
 ## 5. 安全与禁止红线

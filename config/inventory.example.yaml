@@ -9,6 +9,8 @@ imx6ull:
   ssh_port: 22
   deploy_dir: "/opt/edge-ai-safety-monitor"
   sdk_env: "<WSL_SDK_ENV_TODO_FILL>"
+  # If this SDK has no environment-setup-* file, leave sdk_env as TODO and set cc.
+  cc: "<WSL_CC_TODO_FILL>"
 
 opi5:
   host: "<OPI5_IP_TODO_FILL>"
