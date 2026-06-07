@@ -41,7 +41,11 @@ if ! "${SSH_CMD[@]}" -p "$OPI5_PORT" -o StrictHostKeyChecking=accept-new "$OPI5_
   fi
 fi
 # 只同步服务代码与脚本，绝不同步模型权重/图片（见 .gitignore）
-"${SCP_CMD[@]}" -P "$OPI5_PORT" -o StrictHostKeyChecking=accept-new edge/opi5-ai/service/app.py "$OPI5_USER@$OPI5_HOST:$OPI5_DIR/"
+"${SCP_CMD[@]}" -P "$OPI5_PORT" -o StrictHostKeyChecking=accept-new \
+  edge/opi5-ai/service/app.py \
+  edge/opi5-ai/service/qwen3vl_backend.py \
+  edge/opi5-ai/service/risk_mapping.py \
+  "$OPI5_USER@$OPI5_HOST:$OPI5_DIR/"
 echo "[deploy] 已推送 OPi5 AI 服务 -> $OPI5_USER@$OPI5_HOST:$OPI5_DIR/"
 
 echo "[deploy] 在 OPi5 上启动(示例): OPI5_AI_PORT=<PORT> python3 $OPI5_DIR/app.py"

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Orange Pi 5 本地 AI 推理服务 —— MOCK 版本
-=========================================
-本文件提供 docs/07_端边HTTP_JSON_Contract.md 定义的接口的可运行 mock 实现，
-目的是在不依赖真实 RKNN / NPU / 模型权重的情况下，先把
-i.MX6ULL -> OPi5 -> Flask -> Dashboard 的端边垂直切片打通（对应 Task05 / Task07）。
+Orange Pi 5 AI 推理服务
+======================
+支持两种后端（由环境变量 AI_BACKEND 控制）：
+  - mock：用于联调演示，不依赖模型
+  - qwen3vl：调用 Qwen3-VL 2B 真实 RKNN/RKLLM 模型
 
 接口（与 docs/07 一致）：
   GET  /health            -> 服务健康
@@ -15,15 +15,8 @@ i.MX6ULL -> OPi5 -> Flask -> Dashboard 的端边垂直切片打通（对应 Task
   - 响应中的 control_allowed 必须恒为 False；AI 只给 risk_hint，不控制执行器。
 
 运行：
-  pip install flask          # OPi5 上：python3 -m pip install flask
-  OPI5_AI_PORT=8080 python3 app.py
-本地冒烟测试：
-  curl http://127.0.0.1:8080/health
-  curl -F image=@test.jpg \
-       -F 'metadata={"device_id":"labbox_001","frame_id":1,"sensors":{"pir":1}}' \
-       http://127.0.0.1:8080/api/infer/vision
-
-替换为真实 RKNN：见文件底部 run_inference() 处的 TODO。
+  AI_BACKEND=mock   OPI5_AI_PORT=8080 python3 app.py
+  AI_BACKEND=qwen3vl OPI5_AI_PORT=8080 python3 app.py
 """
 
 import json
@@ -34,22 +27,84 @@ from flask import Flask, jsonify, request
 
 CONTRACT_VERSION = "1.0"
 SERVICE_NAME = "opi5-ai-service"
-MODE = "mock"  # 真实接入后改为 "rknn"
+
+AI_BACKEND = os.environ.get("AI_BACKEND", "mock")  # "mock" or "qwen3vl"
 
 app = Flask(__name__)
+
+# Lazy-load qwen3vl backend to avoid import errors when in mock mode
+_qwen3vl_backend = None
+_risk_mapping = None
+
+
+def _get_qwen3vl():
+    global _qwen3vl_backend, _risk_mapping
+    if _qwen3vl_backend is None:
+        import qwen3vl_backend
+        import risk_mapping
+        _qwen3vl_backend = qwen3vl_backend
+        _risk_mapping = risk_mapping
+    return _qwen3vl_backend, _risk_mapping
 
 
 @app.get("/health")
 def health():
-    return jsonify(
-        {
-            "ok": True,
-            "service": SERVICE_NAME,
-            "model_ready": True,   # mock 始终就绪；真实 RKNN 未加载时应返回 False
-            "mode": MODE,
-            "contract_version": CONTRACT_VERSION,
-        }
-    )
+    if AI_BACKEND == "qwen3vl":
+        try:
+            # Verify binary and models exist
+            binary = os.environ.get(
+                "QWEN3VL_BINARY",
+                "/opt/edge-ai-safety-monitor/opi5-ai/qwen3vl_single_shot",
+            )
+            encoder = os.environ.get(
+                "QWEN3VL_ENCODER",
+                "/home/orangepi/models/qwen3vl_models/qwen3vl_2b_vision.rknn",
+            )
+            llm = os.environ.get(
+                "QWEN3VL_LLM",
+                "/home/orangepi/models/qwen3vl_models/qwen3vl_2b_w8a8_base.rkllm",
+            )
+            ready = (
+                os.path.isfile(binary)
+                and os.path.isfile(encoder)
+                and os.path.isfile(llm)
+            )
+            return jsonify(
+                {
+                    "ok": ready,
+                    "service": SERVICE_NAME,
+                    "mode": "qwen3vl",
+                    "model_ready": ready,
+                    "contract_version": CONTRACT_VERSION,
+                    "models": [
+                        {
+                            "name": "qwen3-vl-2b",
+                            "backend": "rknn-llm",
+                            "version": "local",
+                        }
+                    ],
+                }
+            )
+        except Exception as e:
+            return jsonify(
+                {
+                    "ok": False,
+                    "service": SERVICE_NAME,
+                    "mode": "qwen3vl",
+                    "model_ready": False,
+                    "error": str(e),
+                }
+            )
+    else:
+        return jsonify(
+            {
+                "ok": True,
+                "service": SERVICE_NAME,
+                "model_ready": True,
+                "mode": "mock",
+                "contract_version": CONTRACT_VERSION,
+            }
+        )
 
 
 @app.post("/api/infer/vision")
@@ -72,49 +127,82 @@ def infer_vision():
     frame_id = meta.get("frame_id", 0)
     sensors = meta.get("sensors", {}) or {}
 
-    # 读取图片字节只为模拟真实开销；mock 不做真实解码
     raw = image.read()
-    _ = len(raw)
 
-    # 3) 推理（mock）
-    objects, faces, risk_hint, summary, action_hint = run_inference(raw, meta, sensors)
+    if AI_BACKEND == "qwen3vl":
+        resp = _infer_qwen3vl(raw, meta, device_id, frame_id, sensors, t0)
+    else:
+        resp = _infer_mock(raw, meta, device_id, frame_id, sensors, t0)
+
+    return jsonify(resp), 200
+
+
+def _infer_qwen3vl(image_bytes, meta, device_id, frame_id, sensors, t0):
+    """Qwen3-VL real inference."""
+    qvl, risk_map = _get_qwen3vl()
+
+    question = os.environ.get(
+        "QWEN3VL_QUESTION",
+        "请用一句话描述画面内容，并判断是否存在人员、烟雾、火焰或明显安全异常。",
+    )
+
+    result = qvl.run_inference(image_bytes, question=question)
 
     latency_ms = int((time.time() - t0) * 1000)
 
-    resp = {
+    if not result.get("ok"):
+        # Fallback to error response
+        return {
+            "ok": True,
+            "contract_version": CONTRACT_VERSION,
+            "device_id": device_id,
+            "frame_id": frame_id,
+            "latency_ms": latency_ms,
+            "models": [{"name": "qwen3-vl-2b", "version": "local", "backend": "rknn-llm"}],
+            "objects": [],
+            "faces": [],
+            "risk_hint": 0,
+            "summary": f"Qwen3-VL inference failed: {result.get('error', 'unknown')}",
+            "action_hint": "none",
+            "control_allowed": False,
+            "vlm_result": {"ok": False, "error": result.get("error", "unknown")},
+        }
+
+    vlm_text = result.get("text", "")
+    risk_info = risk_map.map_risk(vlm_text)
+    action_hint = risk_map.map_action(risk_info["risk_hint"])
+
+    return {
         "ok": True,
         "contract_version": CONTRACT_VERSION,
         "device_id": device_id,
         "frame_id": frame_id,
         "latency_ms": latency_ms,
-        "models": [{"name": "mock-detector", "version": "mock-0.1"}],
-        "objects": objects,
-        "faces": faces,
-        "risk_hint": risk_hint,
-        "summary": summary,
+        "models": [{"name": "qwen3-vl-2b", "version": "local", "backend": "rknn-llm"}],
+        "objects": [],
+        "faces": [],
+        "risk_hint": risk_info["risk_hint"],
+        "summary": vlm_text[:200] if vlm_text else "no output",
+        "explanation": vlm_text,
+        "vlm_result": {
+            "model": "qwen3-vl-2b",
+            "description": vlm_text,
+            "labels": risk_info["labels"],
+            "confidence": None,
+            "raw_text": vlm_text,
+            "timing": {
+                "total_ms": result.get("total_ms", 0),
+                "imgenc_ms": result.get("imgenc_ms", 0),
+                "llm_ms": result.get("llm_ms", 0),
+            },
+        },
         "action_hint": action_hint,
-        "control_allowed": False,  # 安全红线：恒为 False，绝不允许 AI 控制执行器
+        "control_allowed": False,
     }
-    return jsonify(resp), 200
 
 
-def run_inference(image_bytes, meta, sensors):
-    """
-    MOCK 推理逻辑。返回 (objects, faces, risk_hint, summary, action_hint)。
-
-    规则（仅用于联调演示，可观测、可解释）：
-      - 默认检测到一个 person（便于打通链路）。
-      - 若 metadata.sensors.mq2 或 flame 为真，则追加 smoke 目标并抬高 risk_hint。
-      - risk_hint 仅为提示，i.MX6ULL 本地状态机可参考但不盲从。
-
-    >>> [CLAUDE_CODE_TODO | INVESTIGATE] 用真实 RKNN 推理替换本函数
-    >>> - 为何 GPT 给不了：沙箱无 NPU、无 .rknn 模型、无 OPi5 运行环境。
-    >>> - 期望产物/操作：盘点 PC/OPi5 上已有 rknn-toolkit2 / 现有 demo，
-    >>>   用 RKNN Lite/Runtime 加载一个目标检测模型，把推理结果整理成与此处相同的
-    >>>   objects/faces/risk_hint 结构；保持 control_allowed=False 不变。
-    >>> - 回填位置：edge/opi5-ai/service/app.py run_inference()；docs/09；Task05
-    >>> - 验收：上传真实图片返回真实检测框，latency_ms 为真实耗时。
-    """
+def _infer_mock(image_bytes, meta, device_id, frame_id, sensors, t0):
+    """Mock inference (original behavior)."""
     objects = [{"label": "person", "score": 0.90, "bbox": [120, 80, 260, 430]}]
     faces = []
     risk_hint = 2
@@ -129,10 +217,24 @@ def run_inference(image_bytes, meta, sensors):
         summary = "检测到人员进入巡检区域。"
         action_hint = "none"
 
-    return objects, faces, risk_hint, summary, action_hint
+    latency_ms = int((time.time() - t0) * 1000)
+
+    return {
+        "ok": True,
+        "contract_version": CONTRACT_VERSION,
+        "device_id": device_id,
+        "frame_id": frame_id,
+        "latency_ms": latency_ms,
+        "models": [{"name": "mock-detector", "version": "mock-0.1"}],
+        "objects": objects,
+        "faces": faces,
+        "risk_hint": risk_hint,
+        "summary": summary,
+        "action_hint": action_hint,
+        "control_allowed": False,
+    }
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("OPI5_AI_PORT", "8080"))
-    # 0.0.0.0 便于 i.MX6ULL 通过局域网访问；生产可按需收紧
     app.run(host="0.0.0.0", port=port)

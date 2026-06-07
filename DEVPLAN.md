@@ -12,7 +12,7 @@
 | P1 | Day 1–2 | Task02 WSL/i.MX SDK/SSH | hello、build/deploy 脚本 | 已完成：板端运行 hello |
 | P2 | Day 3–4 | Task03 GPIO/I2C/PWM/云台 | 单模块测试程序、测试记录 | GPIO 输入、I2C/PCA9685、MG90S 云台至少具备真实证据；MOS 作为扩展项保留 |
 | P3 | Day 5 | Task04 V4L2 抓拍 | `v4l2_capture`、图片、格式记录 | 已通过：i.MX 生成可打开 JPEG 图片（640x480, MJPG, v4l2-ctl） |
-| P4 | Day 6–7 | Task05 OPi5 AI 服务 | mock/RKNN 服务 | Task05-A 已通过：OPi5 mock `/health` 与 `/api/infer/vision` 返回 AI JSON；Task05-B 继续 RKNN demo 盘点与接入 |
+| P4 | Day 6–7 | Task05 OPi5 AI 服务 | mock/RKNN 服务 | Task05-A 已通过：OPi5 mock `/health` 与 `/api/infer/vision` 返回 AI JSON；Task05-B 已通过：Qwen3-VL 2B 真实 VLM 推理接入 |
 | P5 | Day 8 | Task06 Flask 扩展 | DB 兼容、Dashboard AI 区域 | 已通过：旧事件兼容，新 AI 事件字段可读取和展示 |
 | P6 | Day 9–10 | Task07 端边垂直切片 | 完整事件、图片、AI 结果 | Task07-A/B/C/C2 已通过：C 版 imx_safetyd 支持 once/loop/flush、实时 GPIO、降级/spool、init.d 启动管理 |
 | P7 | Day 10–11 | Task08 云台巡检 | pan/tilt 扫描日志、视频 | Task08-A 已通过：三点扫描 pan 60/90/120° + mock AI + Flask 上报 |
@@ -86,10 +86,9 @@ Task07-D 为工程化增强项，不作为当前 MVP 验收阻塞项。当前 MV
   - 收益：结构更清晰，便于报告展示和后续维护。
   - 风险：拆分可能引入集成问题，必须保持 Task07-C 已通过行为不退化。
 
-Task06 Flask 契约扩展已通过：后端保持旧 `/api/events` 兼容，不修改 DB schema，通过 `raw_json` 透出 `contract_version/vision/ai_result/image_url/latency_ms`；Dashboard 新增 AI/视觉展示区，可展示 AI 摘要、`risk_hint`、objects、faces、image URL/图片预览、latency、pan/tilt 和 `control_allowed=false`。旧事件缺少 AI 字段时 API 返回 `null`，前端判空显示“暂无 AI/视觉结果”。
+Task06 Flask 契约扩展已通过：后端保持旧 `/api/events` 兼容，不修改 DB schema，通过 `raw_json` 透出 `contract_version/vision/ai_result/image_url/latency_ms`；Dashboard 新增 AI/视觉展示区，可展示 AI 摘要、`risk_hint`、objects、faces、image URL/图片预览、latency、pan/tilt 和 `control_allowed=false`。旧事件缺少 AI 字段时 API 返回 `null`，前端判空显示”暂无 AI/视觉结果”。
 
-
-> **[CLAUDE_CODE_TODO | INVESTIGATE]** Task05-B 盘点并验证 OPi5 与 PC 上已有 RKNN 仓库
+Task05-B Qwen3-VL 2B 真实 AI 部署已通过：OPi5 上 Qwen3-VL 2B 通过 rknn-llm C++ demo 部署，vision encoder (RKNN) + LLM (RKLLM W8A8) 真实推理通过；`/health` 和 `/api/infer/vision` 返回真实 VLM 结果（中文场景描述、risk_hint、vlm_result/explanation）；AI_BACKEND=mock 回归通过；`control_allowed=false`；当前通过子进程调用，端到端 ~13s。
 > - 为何 GPT 给不了：沙箱看不到 PC 侧模型转换环境，OPi5 上候选 demo 虽已只读初筛但尚未运行验证。
 > - 期望产物/操作：Claude Code 在 PC/OPi5 上列出可运行 demo、模型文件、依赖版本；选择第一个可接入的 demo，并真实运行至少一个最小 RKNN demo。
 > - 回填位置：DEVPLAN 第 4 节；docs/09；Task05

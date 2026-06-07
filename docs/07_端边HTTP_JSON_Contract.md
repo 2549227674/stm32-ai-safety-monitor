@@ -77,6 +77,23 @@ Content-Type：`multipart/form-data`
 | `action_hint` | string | 只作提示，不作为执行器命令 |
 | `control_allowed` | bool | 必须为 `false` |
 
+### 向后兼容新增字段（VLM 类模型）
+
+对于 VLM 类模型（如 Qwen3-VL），可额外返回以下字段。这些字段不删除原有 `objects[].bbox` 规范；目标检测模型仍应提供 bbox。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `explanation` | string | VLM 完整输出文本（与 summary 可重复） |
+| `vlm_result` | object | VLM 专属结果，包含以下子字段 |
+| `vlm_result.model` | string | 模型名，如 `"qwen3-vl-2b"` |
+| `vlm_result.description` | string | VLM 描述文本 |
+| `vlm_result.labels` | list[string] | 从文本提取的标签，如 `["person","smoke"]` |
+| `vlm_result.confidence` | float\|null | VLM 通常无精确置信度，可为 null |
+| `vlm_result.raw_text` | string | 原始输出文本 |
+| `vlm_result.timing` | object | 推理耗时详情 |
+
+注意：VLM 类模型的 `objects` 可为空数组，因为 VLM 不提供像素级 bbox。不得伪造 bbox。
+
 ## 7.4 i.MX6ULL → Flask 事件上报
 
 接口：`POST http://<BACKEND_HOST_TODO_FILL>:5000/api/events`

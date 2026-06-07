@@ -22,11 +22,9 @@ Task05-A 已完成 OPi5 mock 服务 bring-up：OPi5 可 SSH 登录，系统为 R
 
 Task05-A 只读盘点到的 OPi5 候选资产包括：`/home/orangepi/rknn-toolkit2-master`、`/home/orangepi/rknn-llm`、`/home/orangepi/phase10/models/yolov8n_phase10`、`/home/orangepi/models/efficientad_models`、`/home/orangepi/models/fastsam_models`、`/home/orangepi/models/qwen3vl_models`。其中发现 `.rknn/.onnx` 等模型样式文件名，但未复制进仓库，也未验证可运行性；真实 demo 验证留到 Task05-B。
 
-> **[CLAUDE_CODE_TODO | INVESTIGATE]** 盘点 PC 和 OPi5 上已有 RKNN 仓库与可运行 demo
-> - 为何 GPT 给不了：沙箱无法访问 PC 侧模型转换环境；OPi5 候选资产虽已只读初筛，但尚未运行 demo 或验证依赖版本。
-> - 期望产物/操作：Claude Code 在本机与 OPi5 上列目录、运行已有 demo，选择最小可接入模型。
-> - 回填位置：docs/09 第 9.2；Task05；edge/opi5-ai/models/README.md
-> - 验收：产出 RKNN 资产清单：模型名、输入尺寸、类别、运行命令、是否通过。
+Task05-B 已完成 Qwen3-VL 2B 真实 AI 部署：OPi5 上 `qwen3vl_2b_vision.rknn`（vision encoder，850MB）+ `qwen3vl_2b_w8a8_base.rkllm`（LLM W8A8，2.37GB）通过 rknn-llm C++ demo 部署并验证；vision encoder 使用 RKNN NPU 3核，LLM 使用 RKLLM runtime；`/health` 和 `/api/infer/vision` 返回真实 VLM 结果（中文场景描述、risk_hint、vlm_result/explanation）；端到端推理 ~13s（含模型加载）；通过子进程调用单次推理 wrapper。详细记录见 `tests/opi5/2026-06-07_qwen3vl_real_ai.md`。
+
+> ~~**[CLAUDE_CODE_TODO | INVESTIGATE]** 盘点 PC 和 OPi5 上已有 RKNN 仓库与可运行 demo~~ 已完成：Task05-B 选择 Qwen3-VL 2B，通过 rknn-llm C++ demo 部署，真实推理通过。详见 `tests/opi5/2026-06-07_qwen3vl_real_ai.md` 和 `edge/opi5-ai/models/README.md`。
 
 
 ## 9.3 目标检测模型
