@@ -1,0 +1,14 @@
+{
+  "type": "event",
+  "contract_version": "1.0",
+  "device_id": "labbox_001",
+  "seq": 1,
+  "state": "VERIFY",
+  "risk_score": 5,
+  "need_snap": true,
+  "sensors": {"door": 0, "pir": 1, "flame": 0, "mq2": 0},
+  "actuators": {"relay": 0, "fan": 0, "pump": 0, "buzzer": 0, "rgb_r": 0, "rgb_g": 0, "rgb_b": 1},
+  "vision": {"frame_id": 1, "image_url": "/uploads/example.jpg", "pan_tilt": {"pan_deg": 90, "tilt_deg": 90}},
+  "ai_result": {"ok": true, "risk_hint": 4, "summary": "mock: detected person", "objects": [{"label": "person", "score": 0.9, "bbox": [10, 20, 100, 200]}], "faces": [], "control_allowed": false},
+  "latency_ms": {"capture": 0, "ai": 0, "post": 0}
+}

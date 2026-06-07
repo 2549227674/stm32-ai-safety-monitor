@@ -1,93 +1,87 @@
-# STM32 AI Safety Monitor
+# 基于 i.MX6ULL 与 Orange Pi 5 的端边协同本地 AI 多模态安全巡检系统
 
-基于 STM32F103C8T6 与 ESP32-CAM 的端云协同 AI 多模态安全巡检与设备健康监测系统。
+> 当前状态：本仓库进入平台迁移阶段。旧 STM32 + ESP32-CAM 方案作为第一版迭代历史归档，新主线为 i.MX6ULL Pro Linux + Orange Pi 5 本地 RKNN。
 
-本项目用于《数字系统综合训练》课程，采用 STM32F103C8T6 作为本地实时主控，融合烟雾、火焰、人体红外、门磁、温湿度、振动等多模态传感数据，实现本地风险评分、异常分级、声光报警、执行器联动与设备保护。系统通过 UART 调度 ESP32-CAM 进行异常抓拍，并支持 Web/手机端查看、服务器数据上报和云端 AI 异常解释。
+## 1. 项目一句话定位
 
-## 核心特性
+本项目面向《数字系统综合训练》课程，以 i.MX6ULL Pro 嵌入式 Linux 为本地安全控制与视觉采集节点，以 Orange Pi 5 为本地 AI 推理节点，以 Flask + SQLite + Dashboard 为本地可视化节点，构建一个不依赖公网云的端边协同安全巡检系统。
 
-- STM32F103C8T6 本地实时控制
-- 多传感器安全巡检（烟雾、火焰、PIR、门磁、温湿度、震动）
-- 风险评分与异常分级状态机
-- OLED 显示、按键交互、蜂鸣器/RGB/继电器/水泵联动
-- ESP32-CAM 异常抓拍与状态回传
-- Web/手机端远程查看
-- 服务器事件记录与图片存储
-- 云端 AI 图像复核与异常解释
-- 断网、摄像头离线、AI 失败时的本地降级运行
+## 2. 新旧架构摘要
 
-## 系统架构
+| 项目阶段 | 第一层 | 第二层 | 第三层 | 第四层 |
+|---|---|---|---|---|
+| 第一版 legacy | STM32F103C8T6 本地控制 | ESP32-CAM 抓拍/联网 | Flask + SQLite + Dashboard | 云端 AI |
+| 当前主线 | i.MX6ULL Linux 本地安全控制 | i.MX6ULL V4L2 + USB 摄像头 + 云台 | Flask + SQLite + Dashboard | Orange Pi 5 RKNN 本地 AI |
 
-```
-第四层 ─ 云端 AI 智能解释层    （图像复核、异常解释、JSON 返回）
-第三层 ─ 服务器 / Web / 手机端  （事件存储、Dashboard、REST API、可选 MQTT）
-第二层 ─ ESP32-CAM 边缘视觉层  （抓拍、本地缓存、Web 预览、UART 从机）
-第一层 ─ STM32 本地实时控制层  （传感器融合、风险评分、状态机、执行器）
-```
+## 3. 先读哪几个文件
 
-## 开发优先级
+| 文件 | 给谁看 | 用途 |
+|---|---|---|
+| `CANONICAL_DECISIONS.md` | 人 + Claude Code | 全局唯一事实源 |
+| `CLAUDE_CODE_EXECUTION_GUIDE.md` | Claude Code | 本地执行总入口 |
+| `docs/00_README.md` | 人 + 老师 | 设计文档包总览 |
+| `docs/07_端边HTTP_JSON_Contract.md` | 人 + Claude Code | 端边 HTTP/JSON 契约权威来源 |
+| `DEVPLAN.md` | 人 + Claude Code | 两周实施看板 |
+| `CLAUDE_CODE_TASK_01_repo_migration_legacy_archive.md` | Claude Code | 第一步：归档 legacy 并建立新目录 |
 
-- **P0**：STM32 本地安全闭环（传感器采集、风险评分、状态机、执行器联动）
-- **P1**：ESP32-CAM 抓拍与 UART 通信（SNAP_REQ/OK、心跳、重传）
-- **P2**：Web/服务器/云端 AI 增强（Dashboard、事件存储、AI 解释）
-- **P3**：暂不做高风险扩展（FOTA、复杂机械结构、从零训练模型）
+## 4. 统一四层架构
 
-## 目录结构
+| 层级 | 名称 | 物理节点 | 核心职责 | 不承担的职责 |
+|---|---|---|---|---|
+| 第一层 | Linux 本地安全控制层 | i.MX6ULL Pro | GPIO/I2C/PWM/MOS、传感器采样、执行器控制、`risk_score`、`safety_fsm`、离线降级 | 不运行重型 AI；不承担 Dashboard 主机 |
+| 第二层 | Linux 视觉采集与巡检云台层 | i.MX6ULL Pro | USB 摄像头 V4L2 抓帧、PCA9685 控制 MG90 二维云台、图片缓存与上传 | 不做模型推理；不直接覆盖安全状态机 |
+| 第三层 | 本地服务器与可视化层 | PC 初期 / Orange Pi 5 最终 | Flask + SQLite + Dashboard、事件存储、图片展示、AI 结果展示 | 不直接控制蜂鸣器、继电器、风扇、水泵 |
+| 第四层 | Orange Pi 5 本地 AI 推理与解释层 | Orange Pi 5 16GB + 128G NVMe | RKNN 视觉推理、人脸/目标/异常识别、可选 rknn-llm 解释 | 不直接控制执行器；只返回 `risk_hint` 与解释 |
 
-```
-stm32-ai-safety-monitor/
-├── README.md                    # 项目说明
-├── CLAUDE.md                    # Claude Code 指南
-├── docs/                        # 设计文档
-│   ├── 00_README.md             # 文档包说明
-│   ├── 01_项目立项与总体设计.md
-│   ├── 02_需求分析与功能优先级.md
-│   ├── 03_硬件系统设计与供电安全.md
-│   ├── 04_软件架构与模块划分.md
-│   ├── 05_开发计划与MVP验收标准.md
-│   ├── 06_状态机与联动机制.md
-│   ├── 07_UART协议与JSON_Contract.md
-│   ├── 08_ESP32CAM抓拍_Web_服务器方案.md
-│   ├── 09_云端AI多模态异常解释方案.md
-│   ├── 10_MPU6050设备健康监测方案.md
-│   ├── 11_测试计划与风险矩阵.md
-│   ├── 12_材料清单与获取计划.md
-│   ├── 13_实训报告与答辩演示方案.md
-│   └── 14_上报表内容与答辩摘要.md
-├── firmware/                    # 固件代码
-│   ├── stm32/                   # STM32 固件
-│   └── esp32cam/                # ESP32-CAM 固件
-├── server/                      # 服务器端
-│   ├── backend/                 # 后端 API
-│   └── web-dashboard/           # Web 前端
-├── hardware/                    # 硬件资料
-│   ├── schematic/               # 原理图
-│   ├── wiring/                  # 接线图
-│   └── images/                  # 硬件图片
-├── tests/                       # 测试代码
-├── assets/                      # 资源文件
-│   ├── photos/                  # 项目照片
-│   ├── diagrams/                # 架构图
-│   └── demo/                    # 演示视频
-└── project/                     # 项目文档
-    ├── report/                  # 实训报告
-    ├── slides/                  # 答辩 PPT
-    └── submission/              # 上交材料
+
+## 5. 当前真实仓库可复用资产
+
+| 资产 | 当前处理 |
+|---|---|
+| `server/backend/` | 保留并扩展。现有 Flask 后端已具备 `/health`、`/api/events`、`/api/status/latest`、`/api/images` 和 `/uploads/<filename>`。 |
+| 事件 JSON 语义 | 保留 `risk_score/sensors/actuators/state`，演化为端边 HTTP/JSON Contract。 |
+| `firmware/stm32/` | 归档到 legacy；BSP 分层、状态机、risk_score 思路可参考，但 HAL/Keil 实现不继续主线。 |
+| `firmware/esp32cam/` | 归档到 legacy；WiFi POST 思路可参考，但 ESP32-CAM 不再承担抓拍和联网主线。 |
+| `tests/` | 历史测试归档，新建 i.MX6ULL / OPi5 / integration 测试记录。 |
+
+## 6. 最小成功标准
+
+MVP 必须展示一条完整链路：
+
+```text
+i.MX6ULL 读取至少 1 路传感器或模拟输入
+  → 本地 safety_fsm 计算 state/risk_score
+  → V4L2 抓拍或使用测试图片
+  → HTTP POST 到 OPi5 `/api/infer/vision`
+  → OPi5 返回 mock 或 RKNN AI JSON
+  → i.MX6ULL 上报 Flask `/api/events`
+  → Dashboard 显示事件、图片链接、AI 摘要
 ```
 
-## 最小成功标准
+## 7. A 类冲刺标准
 
-1. 任一传感器（烟雾/火焰/PIR/门磁）触发
-2. STM32 计算风险评分并驱动状态机转换
-3. OLED 显示当前状态和风险等级
-4. 蜂鸣器/RGB LED 提供反馈
-5. 至少一个执行器（风扇/继电器/水泵）动作
-6. 按键可布防、撤防、静音、复位
+- 真实 GPIO/I2C/PWM/MOS/云台至少各完成一个可观测演示。
+- OPi5 跑通至少一个真实 RKNN demo 或目标检测模型。
+- Dashboard 展示图片、AI 识别结果、`risk_score` 和执行器状态。
+- 逻辑分析仪记录 I2C/PWM/GPIO 关键波形。
+- 报告中把 STM32/ESP32 阶段写成工程迭代历史，不写成失败。
 
-## 快速开始
+## 8. 关键待确认
 
-详见 `docs/00_README.md` 了解文档阅读顺序，`docs/04_软件架构与模块划分.md` 了解软件设计。
+> **[CLAUDE_CODE_TODO | DECIDE]** 确认最终演示是否必须完全脱离 PC
+> - 为何 GPT 给不了：最终后端部署位置影响 Dashboard、SQLite 与录屏演示方案；沙箱无法知道课程现场条件。
+> - 期望产物/操作：用户决定最终演示形态：PC 运行 Flask，或 OPi5 同时运行 Flask + AI。
+> - 回填位置：README.md 第 8 节；DEVPLAN 最终演示阶段；docs/13 演示脚本
+> - 验收：明确写入“最终演示部署位置”，并更新相关 Task。
 
-## License
 
-本项目为课程设计作品，仅供学习参考。
+> **[CLAUDE_CODE_TODO | FILL]** 填写三机局域网地址与 SSH 用户
+> - 为何 GPT 给不了：真实 IP、用户名、端口和密钥路径只能在本地网络中确认，不能入库为真实值。
+> - 期望产物/操作：创建 `config/inventory.example.yaml`，本地复制为不入库的 `inventory.yaml` 后填入 `IMX_IP=<TODO:FILL>`、`OPI5_IP=<TODO:FILL>`、`BACKEND_HOST=<TODO:FILL>`。
+> - 回填位置：README.md、CLAUDE.md、Task02/05/07 的命令占位符
+> - 验收：`ssh <USER>@<IMX_IP>` 与 `ssh <USER>@<OPI5_IP>` 均能登录；真实值只保存在本地。
+
+
+## 9. 入库安全
+
+见 `.gitignore`。禁止提交模型权重、抓拍图片、数据库、SSH 私钥、真实 IP、WiFi 密码。

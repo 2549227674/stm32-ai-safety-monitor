@@ -127,8 +127,20 @@ def insert_image(image):
         return cursor.lastrowid
 
 
+def safe_json_loads(value, default):
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+
 def event_row_to_dict(row):
-    return {
+    raw = safe_json_loads(row["raw_json"], {})
+    vision = raw.get("vision") if isinstance(raw, dict) else None
+
+    out = {
         "event_id": row["event_id"],
         "timestamp": row["timestamp"],
         "device_id": row["device_id"],
@@ -137,7 +149,17 @@ def event_row_to_dict(row):
         "state": row["state"],
         "risk_score": row["risk_score"],
         "need_snap": bool(row["need_snap"]),
-        "sensors": json.loads(row["sensors_json"]),
-        "actuators": json.loads(row["actuators_json"]),
+        "sensors": safe_json_loads(row["sensors_json"], {}),
+        "actuators": safe_json_loads(row["actuators_json"], {}),
         "source": row["source"],
     }
+
+    out["contract_version"] = raw.get("contract_version") if isinstance(raw, dict) else None
+    out["device_health"] = raw.get("device_health") if isinstance(raw, dict) else None
+    out["vision"] = vision
+    out["ai_result"] = raw.get("ai_result") if isinstance(raw, dict) else None
+    out["image_url"] = (
+        raw.get("image_url") if isinstance(raw, dict) else None
+    ) or ((vision or {}).get("image_url") if isinstance(vision, dict) else None)
+    out["latency_ms"] = raw.get("latency_ms") if isinstance(raw, dict) else None
+    return out

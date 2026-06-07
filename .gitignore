@@ -1,35 +1,68 @@
+# Local config and secrets
+.env
+.env.*
+!.env.example
+config/local*.yaml
+config/inventory.yaml
+inventory.yaml
+*.pem
+*.key
+id_rsa*
+known_hosts
+
+# AI models and datasets
+edge/opi5-ai/models/*.rknn
+edge/opi5-ai/models/*.onnx
+edge/opi5-ai/models/*.pt
+edge/opi5-ai/models/*.pth
+edge/opi5-ai/models/*.bin
+edge/opi5-ai/models/weights/
+datasets/
+captures/
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+
+# Build outputs
+build/
+dist/
+*.o
+*.so
+*.a
+*.elf
+*.axf
+*.map
+*.lst
+*.d
+*.dep
+*.crf
+*.bak
+
+# Runtime logs and spools
+logs/
+spool/
+*.log
+
 # Python
 __pycache__/
 *.pyc
 *.pyo
-
-# Virtual environments
 .venv/
 venv/
 
 # Flask runtime
 server/backend/safety_monitor.db
 server/backend/safety_monitor.db-*
-
-# Uploaded files (keep .gitkeep)
 server/backend/uploads/*
 !server/backend/uploads/.gitkeep
 
-# Keil build output
+# Keil legacy outputs
+legacy/2026-stm32-esp32/stm32/SafetyMonitor/MDK-ARM/Objects/
+legacy/2026-stm32-esp32/stm32/SafetyMonitor/MDK-ARM/Listings/
 firmware/stm32/SafetyMonitor/MDK-ARM/Objects/
 firmware/stm32/SafetyMonitor/MDK-ARM/Listings/
-*.o
-*.d
-*.crf
-*.dep
-*.axf
-*.htm
-*.lnp
-*.sct
-*.map
-*.lst
-*.i
-*.bak
 
 # IDE
 *.swp

@@ -1,0 +1,172 @@
+#!/bin/sh
+# BusyBox / SysV init script for imx_safetyd on non-systemd i.MX6ULL
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+BIN=/opt/edge-ai-safety-monitor/imx_safetyd
+BASE_DIR=/opt/edge-ai-safety-monitor
+ENV_FILE=/etc/edge-ai-safety-monitor/imx-safetyd.env
+PID_FILE=/var/run/imx_safetyd.pid
+LOG_FILE=/opt/edge-ai-safety-monitor/run/imx_safetyd.log
+
+log() {
+    echo "[imx-safetyd] $*"
+}
+
+die() {
+    echo "[imx-safetyd] ERROR: $*" >&2
+    exit 1
+}
+
+load_env() {
+    [ -f "$ENV_FILE" ] || die "missing env file: $ENV_FILE"
+
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE" || die "failed to source $ENV_FILE"
+    set +a
+
+    missing=""
+    for var in OPI5_URL BACKEND_URL DEVICE_ID GPIO_PIR GPIO_ACTIVE_HIGH CAPTURE_DEVICE BASE_DIR POST_NORMAL INTERVAL_SEC; do
+        eval "value=\${$var}"
+        [ -n "$value" ] || missing="$missing $var"
+    done
+    [ -z "$missing" ] || die "missing required values in $ENV_FILE:$missing"
+}
+
+pid_is_running() {
+    [ -f "$PID_FILE" ] || return 1
+    PID="$(cat "$PID_FILE" 2>/dev/null)"
+    case "$PID" in
+        ''|*[!0-9]*)
+            return 1
+            ;;
+    esac
+    kill -0 "$PID" 2>/dev/null
+}
+
+cleanup_stale_pidfile() {
+    if [ -f "$PID_FILE" ]; then
+        PID="$(cat "$PID_FILE" 2>/dev/null)"
+        case "$PID" in
+            ''|*[!0-9]*)
+                rm -f "$PID_FILE"
+                ;;
+            *)
+                if ! kill -0 "$PID" 2>/dev/null; then
+                    rm -f "$PID_FILE"
+                fi
+                ;;
+        esac
+    fi
+}
+
+ensure_dirs() {
+    mkdir -p "${LOG_FILE%/*}" || return 1
+    mkdir -p "${PID_FILE%/*}" || return 1
+}
+
+start_service() {
+    cleanup_stale_pidfile
+    if pid_is_running; then
+        log "already running (pid $(cat "$PID_FILE"))"
+        exit 0
+    fi
+
+    [ -x "$BIN" ] || die "missing binary: $BIN"
+    ensure_dirs || die "failed to create runtime dirs"
+    load_env
+
+    if [ ! -f "$ENV_FILE" ]; then
+        die "missing env file: $ENV_FILE"
+    fi
+
+    (
+        cd "$BASE_DIR" || exit 1
+        exec "$BIN" \
+            --mode loop \
+            --opi5-url "$OPI5_URL" \
+            --backend-url "$BACKEND_URL" \
+            --device-id "$DEVICE_ID" \
+            --gpio-pir "$GPIO_PIR" \
+            --gpio-active-high "$GPIO_ACTIVE_HIGH" \
+            --capture-device "$CAPTURE_DEVICE" \
+            --base-dir "$BASE_DIR" \
+            --post-normal "$POST_NORMAL" \
+            --interval-sec "$INTERVAL_SEC"
+    ) >> "$LOG_FILE" 2>&1 &
+
+    PID=$!
+    echo "$PID" > "$PID_FILE" || die "unable to write $PID_FILE"
+    sleep 1
+    if pid_is_running; then
+        log "started (pid $PID)"
+        exit 0
+    fi
+
+    rm -f "$PID_FILE"
+    die "process exited immediately; check $LOG_FILE"
+}
+
+stop_service() {
+    cleanup_stale_pidfile
+    if ! pid_is_running; then
+        log "not running"
+        return 0
+    fi
+
+    PID="$(cat "$PID_FILE")"
+    log "stopping pid $PID"
+    kill "$PID" 2>/dev/null || true
+
+    i=0
+    while [ "$i" -lt 10 ]; do
+        if ! kill -0 "$PID" 2>/dev/null; then
+            rm -f "$PID_FILE"
+            log "stopped"
+            return 0
+        fi
+        i=$((i + 1))
+        sleep 1
+    done
+
+    kill -KILL "$PID" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    log "stopped after SIGKILL"
+    return 0
+}
+
+status_service() {
+    cleanup_stale_pidfile
+    if pid_is_running; then
+        log "running (pid $(cat "$PID_FILE"))"
+        exit 0
+    fi
+
+    if [ -f "$PID_FILE" ]; then
+        log "stopped (stale pidfile removed)"
+        rm -f "$PID_FILE"
+    else
+        log "stopped"
+    fi
+    exit 3
+}
+
+case "$1" in
+    start)
+        start_service
+        ;;
+    stop)
+        stop_service
+        ;;
+    restart)
+        stop_service
+        start_service
+        ;;
+    status)
+        status_service
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}" >&2
+        exit 2
+        ;;
+esac

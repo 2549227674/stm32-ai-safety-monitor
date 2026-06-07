@@ -1,181 +1,220 @@
-# CLAUDE.md
+# CLAUDE.md — Claude Code 工作入口（端边协同迁移版）
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+> 本文件与 `AGENTS.md` 保持同步，供 Claude Code 恢复后使用。Codex 自动入口仍为
+> `AGENTS.md`。二者规则一致；冲突时一律以 `CANONICAL_DECISIONS.md` 为准。
 
-## 项目概述
+## 0. 开始任何任务前必须先读（按顺序）
 
-本项目是一套基于 STM32 的端云协同 AI 多模态安全巡检与设备健康监测系统。当前处于 **P0 本地硬件 bring-up 阶段**，STM32 CubeMX + Keil MDK-ARM + HAL 工程已建立，BSP 模块已拆分，部分传感器和执行器已验证。
+1. `CANONICAL_DECISIONS.md` — 全局唯一事实源（项目名 / 四层架构 / 目录树 / 文件名映射 / 标记规范）。
+2. `CLAUDE_CODE_EXECUTION_GUIDE.md` — 执行总入口（文档地图 / 三机协作模型 / TODO 检索 / 回报模板）。
+3. 当前要执行的 `CLAUDE_CODE_TASK_xx_*.md`。
+4. 与任务相关的 `docs/0x_*.md`。
+5. 契约权威来源：`docs/07_端边HTTP_JSON_Contract.md`（其他文件只引用，不另造字段）。
 
-**核心概念**：STM32F103C8T6 作为实时安全主控，ESP32-CAM 作为边缘视觉协处理器，云端 AI 负责异常解释。系统融合烟雾、火焰、PIR、门磁、温湿度、震动六类传感器数据，通过多模态风险评分状态机驱动本地执行器（蜂鸣器、RGB LED、继电器、风扇、水泵）。
+> 说明：仓库内执行文档沿用 `CLAUDE_*` 前缀（历史命名），其规则对 Codex 与 Claude Code 同样适用。
 
-**STM32 开发方式**：STM32 端采用 STM32CubeMX + Keil MDK-ARM + HAL 库开发。代码统一使用 HAL API，不使用也不混用 STM32F10x 标准外设库。CubeMX 生成文件中的自定义代码必须写在 `USER CODE BEGIN` / `USER CODE END` 区域内，避免重新生成工程时丢失。
+## 1. 当前阶段
 
-## 四层系统架构
-
-```
-第四层 ─ 云端 AI 智能解释层    （图像复核、异常解释、JSON 返回）
-第三层 ─ 服务器 / Web / 手机端  （事件存储、Dashboard、REST API、可选 MQTT）
-第二层 ─ ESP32-CAM 边缘视觉层  （抓拍、本地缓存、Web 预览、UART 从机）
-第一层 ─ STM32 本地实时控制层  （传感器融合、风险评分、状态机、执行器）
-```
-
-**核心约束**：STM32 是唯一主控制器，ESP32-CAM 不控制执行器。本地安全闭环必须能在无网络、无摄像头、无 AI 的情况下独立运行。
-
-## 仓库结构
-
-```
-stm32-ai-safety-monitor/
-├── README.md                    # 项目说明
-├── CLAUDE.md                    # Claude Code 指南
-├── AGENTS.md                    # Agent 工作指南
-├── DEVPLAN.md                   # 垂直切片执行计划
-├── docs/                        # 设计文档（14 个文档，docs/00-14）
-├── firmware/                    # 固件代码
-│   ├── stm32/                   # STM32 固件（已有 CubeMX + Keil 工程）
-│   └── esp32cam/                # ESP32-CAM 固件（后续阶段）
-├── server/                      # 服务器端（后续阶段）
-├── hardware/                    # 硬件资料
-├── tests/                       # 测试记录
-└── project/                     # 项目文档（报告、PPT、提交材料）
-```
-
-## 文档结构
-
-所有设计文档位于 `docs/` 目录：
-
-| 文件 | 内容 |
+| 项目 | 状态 |
 |---|---|
-| `docs/00_README.md` | 项目总览、架构摘要、推荐阅读顺序 |
-| `docs/01_项目立项与总体设计.md` | 项目定位、应用场景、创新点 |
-| `docs/02_需求分析与功能优先级.md` | 功能需求、非功能需求、四层功能划分 |
-| `docs/03_硬件系统设计与供电安全.md` | 引脚连接、供电拓扑、共地、安全注意事项 |
-| `docs/04_软件架构与模块划分.md` | 裸机调度、模块分层、目录结构、关键结构体与伪代码 |
-| `docs/05_开发计划与MVP验收标准.md` | MVP 验收标准、第一天/第三天里程碑 |
-| `docs/06_状态机与联动机制.md` | 状态机、风险评分、传感器联动、执行器策略 |
-| `docs/07_UART协议与JSON_Contract.md` | STM32↔ESP32-CAM UART 帧协议、ACK/NACK、心跳、错误码 |
-| `docs/08_ESP32CAM抓拍_Web_服务器方案.md` | ESP32-CAM 抓拍、Web Dashboard、服务器 API、MQTT |
-| `docs/09_云端AI多模态异常解释方案.md` | AI 输入输出 JSON、图像复核、降级策略 |
-| `docs/10_MPU6050设备健康监测方案.md` | GY-521 震动检测算法（RMS、峰峰值） |
-| `docs/11_测试计划与风险矩阵.md` | 单模块/集成/系统测试计划、风险矩阵 |
-| `docs/12_材料清单与获取计划.md` | 物料清单、采购计划 |
-| `docs/13_实训报告与答辩演示方案.md` | 报告结构、答辩演示脚本（3-5 分钟） |
-| `docs/14_上报表内容与答辩摘要.md` | 上报表内容、答辩摘要 |
+| 工作目录 | WSL 原生目录 `/home/qbz415/SafetyMonitor`；不要再使用 `/mnt/c/program1/SafetyMonitor` 开发 |
+| 当前分支 | `migration/imx6ull-opi5-edge-ai` |
+| 最新迁移提交 | `3dfd7a7 task07-c2: fix initd restart flow`；Task07-C2 已完成 |
+| 总体阶段 | Task11-A/11-B/11-C/11-D 已通过；P1 扩展主体完成 |
+| 新主线 | i.MX6ULL Pro + Orange Pi 5 + Flask |
+| 旧主线 | STM32 + ESP32-CAM 归档为 legacy |
+| 当前执行器 | 本地 Codex / Claude Code |
+| 首要目标 | Task11 P1 扩展硬件切片验证 / Task09 最终演示 / 报告与答辩材料，待用户决策 |
 
-## 当前 P0 状态
+## 2. 项目主线与三机角色
 
-| 编号 | 测试项 | 状态 |
+主线为 `Edge AI Safety Monitor`：i.MX6ULL Pro 负责 Linux 本地安全控制、V4L2 抓拍与云台；
+Orange Pi 5 负责本地 RKNN 推理；Flask + SQLite + Dashboard 保留并扩展。
+
+| 节点 | 角色 | 部署/入口 |
 |---|---|---|
-| P0-00 | STM32 最小工程 + PC13 LED | 已完成 |
-| P0-02 | AD 四位按键 (PA0) | 已完成 |
-| P0-03 | 蜂鸣器 (PB5) / RGB (PB0/PB1/PB10) | 已完成 |
-| P0-04A | OLED I2C (PB6/PB7) | 已完成 |
-| P0-04B | PIR (PB15) | 已完成 |
-| P0-04B | MQ-2 DO (PB14) | 软件链路通过，实物暂缓 |
-| P0-04B | 门磁 (PA4) | 已验证，常开型 |
-| P0-05A | 继电器 (PA6) | 未到货，暂缓 |
-| P0-05B | 风扇 (PA7) | 已通过，L9110S 驱动 |
-| P0-05C | 水泵 (PB8) | 未开始 |
-| P0-06 | risk_score 风险评分 | 未开始 |
-| P0-07 | safety_fsm 状态机 | 未开始 |
+| PC / WSL | 代码编辑、交叉编译、模型转换准备、scp/ssh 部署 | `scripts/build_imx6ull.sh`、`scripts/deploy_*.sh` |
+| i.MX6ULL Pro | 本地安全控制、V4L2 抓拍、云台、上报事件 | `/opt/edge-ai-safety-monitor/` |
+| Orange Pi 5 | RKNN 推理服务（先 mock 后真实） | `/opt/edge-ai-safety-monitor/opi5-ai/` |
 
-详细测试记录见 `tests/p0_bringup_record.md` 和 `firmware/stm32/docs/bringup_log.md`。
+真实地址 / SDK 路径 / 端口写在不入库的 `config/inventory.yaml`。
 
-## 垂直切片阶段状态
+## 3. 任务执行顺序（未过门槛不进下一步）
 
-| 阶段 | 内容 | 状态 |
+| 顺序 | 入口文档 | 目标 | 通过门槛 |
+|---|---|---|---|
+| 1 | `CLAUDE_CODE_TASK_01_repo_migration_legacy_archive.md` | 迁移分支、legacy 归档、新目录 | 已完成：旧 STM32/ESP32 进 `legacy/`，新目录存在，无重复同号 docs |
+| 2 | `CLAUDE_CODE_TASK_02_wsl_imx6ull_toolchain_ssh.md` | WSL SDK、交叉编译、SSH 到 i.MX6ULL | `hello_imx6ull` 能在板端运行 |
+| 3 | `CLAUDE_CODE_TASK_03_imx6ull_gpio_i2c_pwm_bringup.md` | GPIO/I2C/PCA9685/MOS/云台验证 | 空载 PWM、舵机、MOS 负载均有 tests 记录 |
+| 4 | `CLAUDE_CODE_TASK_04_imx6ull_v4l2_capture.md` | V4L2 抓图 | 板端生成可打开图片，记录格式/耗时 |
+| 5 | `CLAUDE_CODE_TASK_05_opi5_rknn_inference_service.md` | OPi5 AI 服务（先 mock） | `/health` 与 `/api/infer/vision` 返回 JSON |
+| 6 | `CLAUDE_CODE_TASK_06_backend_contract_extension.md` | Flask 扩展 | 新旧事件均显示，旧接口兼容 |
+| 7 | `CLAUDE_CODE_TASK_07_end_edge_vertical_slice.md` | i.MX→OPi5→Flask 完整链路 | Dashboard 显示一条完整端边事件 |
+| 8 | `CLAUDE_CODE_TASK_08_pan_tilt巡检演示.md` | 云台巡检演示 | pan/tilt 角度、图片、AI 结果联动 |
+| 9 | `CLAUDE_CODE_TASK_10_imx6ull_sensor_actuator_p0.md` | P0 传感器/执行器真实化 | 门磁/火焰/MQ-2/PIR 真实 GPIO 读取 + 蜂鸣器/RGB 真实驱动；本地 ALARM 独立于网络/AI |
+| 10 | `CLAUDE_CODE_TASK_11_imx6ull_p1_oled_relay_soctemp_pump.md` | P1 OLED/继电器/SoC温度/水泵 | OLED 状态屏 + PCA9685 CH5/CH6 负载 + SoC 温度热健康 + 隔离水箱；全部待验证 |
+
+建议路径：Task01 已落地后，先不碰硬件，用 `scripts/run_mock_ai.sh` + `tests/payloads/event_with_ai.json`
+跑通“mock 发包 → mock AI → Flask → Dashboard”纯软件垂直切片，作为保底可演示物，再推进 Task02 起的硬件链路。
+
+## 4. 已知 legacy 状态（只描述第一版，不作为新主线验收）
+
+| 项目 | 状态 | 说明 |
 |---|---|---|
-| 阶段 0 | 冻结现状和仓库基线 | 已完成 |
-| 阶段 1 | STM32 main.c 模块化重构 (Task 01) | 已完成 |
-| 阶段 2 | P0-05A 继电器低压验证 | 暂缓（继电器未到货） |
-| 阶段 3 | Flask + SQLite + Dashboard 骨架 | 已完成 |
-| 阶段 4 | ESP32-CAM WiFi + HTTP 测试事件 | 已通过（手机热点，未接 STM32） |
-| 阶段 5 | STM32 → ESP32-CAM UART 桥接 | 未开始 |
-| 阶段 6 | 垂直切片 PA4 门磁 DOOR | 未开始 |
-| 阶段 7 | PIR / 火焰 / MQ-2 软件链路切片 | 未开始 |
-| 阶段 8 | P0-05B/C 风扇/水泵低压验证 | P0-05B 已通过，P0-05C 未开始 |
-| 阶段 9 | risk_score + safety_fsm + 本地闭环 | 未开始 |
-| 阶段 10 | 集成演示、报告、PPT | 未开始 |
+| ESP32-CAM 网络 POST | 历史已验证 | Flask 返回 201，Dashboard 显示 TEST，seq 递增 |
+| STM32 PA9/USART1_TX 输出 JSON | 历史已验证 | 最新会话记录显示 115200 8N1 JSON 可输出 |
+| STM32→ESP32-CAM GPIO13 最终桥接 | 未最终验收 | PA9 到 GPIO13 物理连接不可靠或引脚位置未确认 |
+| 当前 zip 内代码 | 与最新会话状态脱节 | zip 中 STM32 仍为 USART2/huart2，ESP32-CAM 仍默认 UART0 GPIO3/1 |
 
-注意：阶段 4 只验证了 ESP32-CAM HTTP 上报 TEST 事件，不代表 UART 桥接或抓拍完成。
+## 5. 新硬件验证表（初始全为待验证，禁止预填“已通过”）
 
-## STM32 当前代码结构
+| 模块 | 目标 | 初始状态 | 证据路径 | 对应 Task |
+|---|---|---|---|---|
+| i.MX6ULL SSH | PC/WSL 可登录 | 已验证 | `tests/imx6ull/2026-06-06_toolchain_ssh.md` | Task02 |
+| i.MX6ULL SDK | WSL 可交叉编译 | 已验证 | `tests/imx6ull/2026-06-06_toolchain_ssh.md` | Task02 |
+| GPIO 输入 | 门磁/PIR/火焰/按键至少一路 | 已验证（PIR / HC-SR501 DO -> J5 D0 / gpio117） | `tests/imx6ull/2026-06-06_gpio_input_probe.md` | Task03 |
+| I2C / PCA9685 | 发现地址并输出 50Hz PWM | 地址已验证；空载 PWM 软件准备完成，用户决定跳过波形实测 | `tests/imx6ull/2026-06-06_i2c_pca9685_probe.md`、`tests/imx6ull/2026-06-06_pca9685_pwm_empty_load.md` | Task03 |
+| MG90S 云台 | pan/tilt 可控 | 已验证（分时模式：CH0/CH1 各自 1100→1900us 大幅动作通过，无 5V 压降） | `tests/imx6ull/2026-06-06_pca9685_servo_small_angle.md` | Task03/08 |
+| MOS 低压负载 | 默认 OFF 且可控 | 本轮跳过（控制端需焊接，MVP 不依赖） | `tests/imx6ull/2026-06-06_mos_skip_decision.md` | Task03（扩展项） |
+| USB 摄像头 | `/dev/video1` 可抓图 | 已验证（UVC 1.00, MJPG 640x480, v4l2-ctl 抓帧成功） | `tests/imx6ull/2026-06-06_v4l2_capture.md` | Task04 |
+| OPi5 SSH / AI mock 服务 | 登录 + `/health`、`/api/infer/vision` mock 可用 | Task05-A 已验证 | `tests/opi5/2026-06-07_ai_mock_service.md` | Task05-A |
+| OPi5 Qwen3-VL 2B 真实 AI | VLM 真实推理 | Task05-B 已通过（rknn+rkllm，中文场景描述，~13s） | `tests/opi5/2026-06-07_qwen3vl_real_ai.md` | Task05-B |
+| OPi5 Qwen3-VL worker + i.MX 回归 | 持久化 worker + 端边闭环 | Task05-C 已通过（worker ~8.4s，i.MX→OPi5→Flask 201） | `tests/opi5/2026-06-07_qwen3vl_persistent_regression.md` | Task05-C |
+| Flask 扩展 | vision/AI/image 显示 | Task06 已验证 | `tests/integration/2026-06-07_backend_contract_extension.md` | Task06 |
+| 端边垂直切片 | i.MX→OPi5→Flask | Task07-C2 已验证（C 版 imx_safetyd：真实 gpio117 空闲读取、FORCE_VERIFY 抓拍、OPi5 mock AI、Flask 上报、offline 降级、spool/flush、loop；BusyBox init.d 启动管理；PIR 未人工触发 raw=1） | `tests/integration/2026-06-07_imx_safetyd_c.md`、`tests/integration/2026-06-07_imx_safetyd_initd.md` | Task07-C2 |
+| 门磁 door | gpio118 读取真实开合 | 本轮跳过（无外部 10k 上拉时裸读不稳定） | `tests/imx6ull/2026-06-07_p0_door_reed_switch_skip.md` | Task10-A |
+| 火焰 flame | gpio119 读取真实触发 | 已验证（3.3V 供电，DO 高有效，flame=1→ALARM） | `tests/imx6ull/2026-06-07_p0_flame_sensor.md` | Task10-B |
+| MQ-2 mq2 | gpio120 读取真实触发 | 已验证（课设短时：5V+DO直连，mq2=1→ALARM） | `tests/imx6ull/2026-06-07_p0_mq2_sensor.md` | Task10-C |
+| PIR 真实触发 | gpio117 取得 raw=1 证据 | 已验证（沿用 Task03-A 历史证据；Task10-D 不重复测试） | `tests/imx6ull/2026-06-06_gpio_input_probe.md`、`tests/imx6ull/2026-06-07_p0_pir_reuse_task03a.md` | Task10-D |
+| 蜂鸣器 buzzer | gpio122 + 三极管真实驱动 | 已验证（active low，0=响） | `tests/imx6ull/2026-06-07_p0_buzzer_rgb_outputs.md` | Task10-E |
+| RGB 状态色 | gpio121/123/124 真实驱动 | 已验证（G/B active high 正常，R 代码逻辑正确红灯待查硬件） | `tests/imx6ull/2026-06-07_p0_buzzer_rgb_outputs.md` | Task10-E |
+| RGB PCA9685 PWM | PCA9685 CH2/CH3/CH4 PWM 驱动 RGB | 已验证（新 RGB 模块三路均亮，亮度良好） | `tests/imx6ull/2026-06-07_p0_rgb_pca9685_pwm.md` | Task10-E2 |
+| OLED SSD1306 | I2C 0x3C 本地状态屏 | 已验证（oled_test 刷屏，imx_safetyd loop 可刷新 state/risk/sensors） | `tests/imx6ull/2026-06-07_p1_oled_status_screen.md` | Task11-A |
+| Relay CH5 | PCA9685 CH5 → KY-019 继电器 | 已验证（active high，default OFF，ALARM 动作） | `tests/imx6ull/2026-06-07_p1_relay_ch5.md` | Task11-B |
+| SoC 温度 | thermal_zone0 读取，device_health 热健康 | 已验证（46.6°C，WARN 阈值可配置，不触发 ALARM） | `tests/imx6ull/2026-06-07_p1_soc_temp_health.md` | Task11-C |
+| Pump CH6 双负载 | PCA9685 CH6 → MOS → 水泵+水枪 | 已验证（active high，default OFF，ALARM 动作，双负载并联） | `tests/imx6ull/2026-06-07_p1_pump_water_tank.md` | Task11-D |
 
-已拆分的 BSP/App 模块（Task 01 已完成）：
+> **[CLAUDE_CODE_TODO | VERIFY]** 逐项验证新硬件状态表
+> - 为何 GPT 给不了：沙箱无法访问 i.MX6ULL、OPi5、摄像头、PCA9685、舵机、MOS 负载。
+> - 期望产物/操作：按 Task02–10 执行真实命令和硬件测试，逐项把”待验证”改为”已验证/失败/绕过”。
+> - 回填位置：AGENTS.md / CLAUDE.md 第 5 节表格
+> - 验收：每项都有 tests 记录、命令输出或照片/波形证据。
 
+## 6. 允许做的事
+
+- 重写根目录文档与 `docs/00–14`（保持编号，不新增 `docs/15`）。
+- 移动旧 `firmware/stm32`、`firmware/esp32cam` 到 `legacy/2026-stm32-esp32/`。
+- 在 `edge/imx6ull-controller/`、`edge/opi5-ai/` 新建 Linux 控制程序与 AI 服务。
+- 在 `server/backend/` 增量扩展字段与页面，保持旧 `/api/events` 兼容。
+- 在 `common/contracts/`、`scripts/`、`tests/` 维护契约、脚本与真实测试记录。
+- 用 `git mv` 归档，不删历史。
+
+## 7. 禁止做的事
+
+| 禁止 | 原因 |
+|---|---|
+| 把旧 STM32/ESP32-CAM 链路写成最终通过 | 只归档事实，不美化 |
+| 继续死磕 STM32→ESP32-CAM UART 桥接 | 已退出新主线 |
+| 删除旧代码历史 | legacy 是答辩中的工程迭代证据 |
+| 重写 Flask 为另一框架 / 覆盖真实 `app.py`、`database.py` | 现有 Flask 是最可复用资产，只增量改 |
+| 让 OPi5 / Flask / AI 直接控制执行器 | 安全闭环必须留在 i.MX6ULL；`control_allowed` 恒为 `false` |
+| 提交 `config/inventory.yaml`、`.env`、模型权重、数据库、抓拍图片、真实 IP/密码/密钥 | 入库安全 |
+| 给舵机/水泵用板卡 IO 直接供电；使用 220V 负载 | 硬件安全 |
+| 把未实测硬件写成“已通过” | 报告须与真实状态一致 |
+
+## 8. 安全红线（最高优先级）
+
+1. 本地安全闭环优先：无网络 / 无摄像头 / 无 AI 时，i.MX6ULL 仍能依据本地传感器进入安全状态。
+2. AI / Dashboard / 上层只返回 `risk_hint`、解释与展示，不直接控制蜂鸣器、RGB、继电器、水泵。
+3. 不接 220V；演示负载用低压直流；舵机与负载独立供电、星形共地；执行器默认 OFF、MOS 栅极下拉。
+4. 先空载 PWM 再接 MG90S；先 LED 再接水泵；先 mock AI 再接真实 RKNN。
+
+## 9. 命令与配置原则
+
+- 真实环境值（IP、用户名、端口、SDK 路径、AI 端口）只从不入库的 `config/inventory.yaml` 读取；
+  仓库内只放 `config/inventory.example.yaml`。脚本通过 `scripts/lib_inventory.sh` 取值，不写死。
+
+```bash
+cp config/inventory.example.yaml config/inventory.yaml
 ```
-firmware/stm32/SafetyMonitor/Core/Inc/
-├── bsp_key.h          # AD 按键 BSP
-├── bsp_inputs.h       # 传感器输入 BSP
-├── bsp_outputs.h      # 执行器输出 BSP
-├── bsp_oled.h         # OLED I2C 驱动
-├── bsp_dht11.h        # DHT11（保留但暂缓，当前不使用）
-├── app_display.h      # OLED 调试页面
-└── main.h             # CubeMX 生成
 
-firmware/stm32/SafetyMonitor/Core/Src/
-├── bsp_key.c
-├── bsp_inputs.c
-├── bsp_outputs.c
-├── bsp_oled.c
-├── bsp_dht11.c        # 保留但暂缓，main.c 不 include/init/read
-├── app_display.c
-├── main.c             # CubeMX 生成 + USER CODE 区域
-├── adc.c, gpio.c, i2c.c, tim.c  # CubeMX 生成
-└── stm32f1xx_it.c     # 中断处理
+- `config/inventory.yaml` 已在 WSL 本地创建，用于本机真实值，禁止提交。
+- 交叉编译与部署：`scripts/build_imx6ull.sh`、`scripts/deploy_imx6ull.sh`、`scripts/deploy_opi5.sh`。
+- SDK 环境变量与工具链三元组在 Task02 中确认；若 SDK 无 `environment-setup-*`，则写入 `inventory.yaml` 的 `imx6ull.cc`。
+
+## 10. 端边 Contract 原则
+
+`docs/07_端边HTTP_JSON_Contract.md` 是唯一权威来源，代码字段必须与之同步。
+保留旧事件语义 `type/device_id/seq/state/risk_score/need_snap/sensors/actuators`；
+新增 `vision/ai_result/image_url/latency_ms/frame_id/pan_tilt` 只能向后兼容（旧后端能忽略或存入 `raw_json`）。
+后端扩展落点见 `server/backend/CONTRACT_EXTENSION_NOTES.md`（`raw_json` 已存全量 payload，存储天然兼容）。
+
+## 11. 标记规范（与 CANONICAL 一致）
+
+需要本地验证/填值/调查/实测/决策处，统一用可 grep 的块：
+
+```text
+> **[CLAUDE_CODE_TODO | 类型]** 一句话说明
+> - 为何 GPT 给不了：原因
+> - 期望产物/操作：动作与产出
+> - 回填位置：文件与小节
+> - 验收：完成标准
 ```
 
-**DHT11 当前状态**：`bsp_dht11.h/c` 保留，但 main.c 不 include、不 init、不 read。`AppDisplay_Update` 最后三个参数使用 `0U, 0U, 0U`。不参与 risk_score / safety_fsm。
+类型：`VERIFY` `FILL` `INVESTIGATE` `MEASURE` `DECIDE`。默认假设用 `> **[ASSUMPTION]** ...`。
+检索全部待办：
 
-## 关键技术细节
+```bash
+grep -RIn "\[CLAUDE_CODE_TODO" .
+```
 
-### STM32 软件栈
-- 裸机前后台 + SysTick 定时调度（不使用 RTOS）
-- 任务周期：按键 10ms、传感器 50-100ms、风险评分 100-200ms、状态机 100ms、OLED 200-500ms、MPU6050 20ms、ESP 心跳 2s
-- 关键枚举：`SystemState_t`、`RiskLevel_t`、`BuzzerMode_t`、`RgbMode_t`
+## 12. 已完成任务记录
 
-### risk_score 风险评分（0-10 分制）
+| Task | 状态 | 证据/产物 | 说明 |
+|---|---|---|---|
+| Task01 仓库迁移与 legacy 归档 | 已完成 | `legacy/2026-stm32-esp32/`、`tests/legacy/2026-06-05_task01_repo_migration_record.md`、提交 `a44fd9f` | 旧 STM32/ESP32-CAM 工程与旧测试记录已归档，新主线目录和文档包已落地。 |
+| Task02 WSL/i.MX6ULL SDK/SSH/hello 部署 | 已完成 | `tests/imx6ull/2026-06-06_toolchain_ssh.md`、提交 `52c4392` 后续收尾提交 | SDK 已交叉编译 hello，WSL/PC SSH 恢复后板端输出 `hello from imx6ull target`。 |
+| Task03 GPIO/I2C/PWM/云台 | 收尾完成 | `tests/imx6ull/2026-06-06_*.md` | GPIO 输入通过；I2C/PCA9685 地址通过；MG90S 分时云台通过；PWM 波形实测跳过；MOS 跳过。 |
+| Task04 V4L2 USB 摄像头抓拍 | 已通过 | `tests/imx6ull/2026-06-06_v4l2_capture.md`、`tests/imx6ull/artifacts/2026-06-06_task04_latest.jpg` | USB 免驱摄像头（UVC 1.00）识别成功，v4l2-ctl 抓取 640x480 MJPEG 帧，保存为有效 JPEG 图片。 |
+| Task05-A OPi5 AI mock 服务 | 已通过 | `tests/opi5/2026-06-07_ai_mock_service.md` | OPi5 mock AI 服务部署通过，`/health` 与 `/api/infer/vision` 返回符合 docs/07 的 JSON，`control_allowed=false`。 |
+| Task06 Flask 契约扩展 | 已通过 | `tests/integration/2026-06-07_backend_contract_extension.md` | 未改 DB schema，`raw_json` 透出 AI/视觉字段，Dashboard 新增 AI 展示区。 |
+| Task07-A 端边最小垂直切片 | 已通过 | `tests/integration/2026-06-07_end_edge_vertical_slice.md` | i.MX 抓拍→OPi5 mock AI→Flask 完整链路通过，`control_allowed=false`，延迟 capture=470ms/ai=135ms/post=146ms。 |
+| Task07-B imx_safetyd-lite | 已通过 | `tests/integration/2026-06-07_imx_safetyd_lite.md` | Shell 版 MVP 控制端：真实 PIR gpio117 读取、NORMAL/VERIFY、OPi5 降级、Flask spool/flush 通过；`FORCE_VERIFY=1` 用于 VERIFY 测试。 |
+| Task08-A 云台分时巡检 | 已通过 | `tests/imx6ull/2026-06-07_pan_tilt_demo.md` | PCA9685+MG90S 三点扫描、抓拍、OPi5 mock AI、Flask 上报通过；`control_allowed=false`。 |
+| Task07-C C 版 imx_safetyd | 已通过 | `tests/integration/2026-06-07_imx_safetyd_c.md` | C 版主控程序已交叉编译并部署到 i.MX6ULL，支持 `once/loop/flush`、读取真实 PIR gpio117、NORMAL/VERIFY/FAULT 最小状态机、VERIFY 抓拍、OPi5 mock AI、干净 fallback AI、Flask 上报、pending spool、flush 到 sent、运行日志和 status JSON；当前板端无 `systemctl`，systemd 模板仅入库备用；本轮 PIR 仅测到空闲 raw=0，VERIFY 使用 `FORCE_VERIFY=1`。 |
+| Task07-C2 init.d 启动管理 | 已通过 | `tests/integration/2026-06-07_imx_safetyd_initd.md` | BusyBox/SysV `init.d` 适配完成，支持 `start/stop/restart/status`、PID 文件、日志追加、重复启动防护；板端 `/etc/init.d/rcS` 会执行 `S??*`，具备开机自启条件；`/etc/edge-ai-safety-monitor/imx-safetyd.env` 由板端手动创建，未入库。 |
+| Task10-E 蜂鸣器 + RGB 输出 | 已通过 | `tests/imx6ull/2026-06-07_p0_buzzer_rgb_outputs.md` | buzzer active low (gpio122=0 响)；RGB-G/B active high 正常；RGB-R 代码逻辑正确红灯待查硬件；NORMAL 绿灯/VERIFY 蓝灯/ALARM 红灯+蜂鸣器驱动正确；all_off 清理保护。 |
+| Task10-E2 RGB PCA9685 PWM | 已通过 | `tests/imx6ull/2026-06-07_p0_rgb_pca9685_pwm.md` | PCA9685 CH2/CH3/CH4 PWM 驱动 RGB 全部正常；新 RGB 模块三路均亮；RGB_BACKEND 可选 gpio/pca9685；蜂鸣器仍 gpio122；演示推荐 pca9685。 |
+| Task10 P0 传感器/执行器真实化 | 主体完成 | `tests/imx6ull/2026-06-07_p0_*.md` | 10-B 火焰通过、10-C MQ-2 通过、10-D PIR 沿用历史、10-E 蜂鸣器+RGB 通过、10-E2 RGB PCA9685 PWM 通过；10-A 门磁跳过。 |
+| Task11 P1 扩展 | 主体完成 | `CLAUDE_CODE_TASK_11_*.md`、CANONICAL 0.7 | 11-A/11-B/11-C/11-D 全部通过；P1 扩展主体完成 |
+| Task11-A OLED 状态屏 | 已通过 | `tests/imx6ull/2026-06-07_p1_oled_status_screen.md` | SSD1306 I2C 0x3C，oled_test 刷屏，imx_safetyd loop 可刷新 state/risk/sensors/actuators |
+| Task11-B Relay CH5 | 已通过 | `tests/imx6ull/2026-06-07_p1_relay_ch5.md` | KY-019 PCA9685 CH5 active high，默认 OFF，ALARM 时 relay=1，all_off 释放 |
+| Task11-C SoC 温度热健康 | 已通过 | `tests/imx6ull/2026-06-07_p1_soc_temp_health.md` | thermal_zone0 可读 46.6°C，device_health WARN/NORMAL 可配置，不触发 ALARM，OLED 显示温度 |
+| Task11-D Pump 双负载水箱 | 已通过 | `tests/imx6ull/2026-06-07_p1_pump_water_tank.md` | PCA9685 CH6 双负载（水泵+水枪），active high，默认 OFF，ALARM 时 pump=1，all_off 释放 |
 
-| 分值 | 风险等级 |
-|---:|---|
-| 0-2 | NORMAL |
-| 3-5 | PRE_ALARM |
-| 6-8 | ALARM |
-| >=9 | DANGER |
+## 13. 后续增强路线（可选，不阻塞 MVP）
 
-### UART 协议（STM32↔ESP32-CAM）
-- 帧格式：`0xAA 0x55 | version | msg_type | seq | cmd | len | payload | checksum`
-- 命令码：PING/PONG、SNAP_REQ/OK/FAIL、UPLOAD_REQ/OK/FAIL、AI_REQ/RESULT/FAIL、ACK/NACK
-- payload 0-64 字节，checksum 为 version 到 payload 的异或
+| 增强项 | 目标 | 前置条件 | 风险 |
+|---|---|---|---|
+| Task07-D1 原生 libcurl | 替换 curl 子进程 | 确认 sysroot 有 libcurl | 依赖库缺失 |
+| Task07-D2 原生 V4L2 | 替换 v4l2-ctl 子进程 | 无 | mmap 流程复杂 |
+| Task07-D3 C 模块化拆分 | 单文件拆分为多模块 | D1/D2 完成后更自然 | 集成回归 |
 
-### 硬件安全规则
-- 所有 GND 必须共地（推荐星形接地）
-- MQ-2 AO 可能超过 3.3V，必须加分压电阻（10k/20k）
-- 水泵必须经 MOS 管/驱动板控制，禁止 GPIO 直接驱动
-- 水泵软件限时：喷淋 1-3 秒，冷却 10 秒以上
-- ESP32-CAM 需独立 5V 支路（Wi-Fi 和拍照峰值电流大）
-- 风扇/继电器/水泵不得由 ST-Link 或 STM32 GPIO 直接供电，必须独立供电并使用驱动模块
+当前稳定基线：Task07-C C 版 imx_safetyd + v4l2-ctl/curl 子进程。Task07-D 不改变状态机规则和安全边界。
 
-### CubeMX / Keil 开发规则
-- 引脚和外设配置优先通过 STM32CubeMX 图形界面修改并 Generate Code
-- 不要手写 main.h / gpio.c / adc.c / i2c.c / tim.c
-- 用户业务逻辑写在 USER CODE 区域或独立 Core/Inc、Core/Src 模块
-- 不混用 STM32F10x 标准外设库
-- 不引入 FreeRTOS
+## 14. 完成任务后的固定回填
 
-## 最小成功标准
+每完成一个 Task：
 
-系统可提交的基础条件：
-1. 任一传感器（烟雾/火焰/PIR/门磁）触发
-2. STM32 计算风险评分并驱动状态机转换
-3. OLED 显示当前状态和风险等级
-4. 蜂鸣器/RGB LED 提供反馈
-5. 至少一个执行器（风扇/继电器/水泵）动作
-6. 按键可布防、撤防、静音、复位
+1. 更新 `AGENTS.md` / `CLAUDE.md` 第 1 / 第 5 / 第 12 节状态。
+2. 更新 `DEVPLAN.md` 看板。
+3. 在 `tests/<scope>/YYYY-MM-DD_*.md` 记录真实命令、结果、截图/波形路径。
+4. 关闭或改写对应 `[CLAUDE_CODE_TODO]`，并按需重生成 `CLAUDE_CODE_TODO_INDEX.md`。
+5. 提交信息：`taskXX: 简短说明`；提交粒度小，不混多个 Task。
 
-## A 类冲刺目标（超越 MVP）
+## 15. Claude Code 专属提示
 
-- ESP32-CAM 异常抓拍成功（SNAP_OK 可回显）
-- Web Dashboard 可在手机浏览器查看当前状态和抓拍图片
-- 服务器接收并存储至少一条事件和图片
-- 云端 AI 返回异常解释 JSON 并展示在 Web 页面
-- 断网/AI 失败时本地系统继续工作，Web 显示"AI 分析不可用"
+- 本文件（`CLAUDE.md`）与 `AGENTS.md` 同步；遇到 `AGENTS.md` 中的规则一律视为同样适用。
+- 不确定硬件值/路径/IP/模型名时，新增 `[CLAUDE_CODE_TODO]`，不要猜、不要编造命令输出。
+- 每完成一步先跑最小可行验证，再扩大；任何对 `server/backend/` 的改动必须保持旧 `/api/events` 兼容。
+- 当前未跟踪的 `reviewed_docs_tmp/`、`temp_docs/`、`tmp/`、`worktree.txt` 是临时材料，不要默认提交。

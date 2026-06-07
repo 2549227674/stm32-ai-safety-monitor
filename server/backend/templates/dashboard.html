@@ -3,84 +3,205 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>安全巡检系统 Dashboard</title>
+    <title>Edge AI Safety Center — 端边协同安全态势中心</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>安全巡检系统 Dashboard</h1>
-        <p id="refreshText">等待数据刷新</p>
+    <div id="stage">
+      <div id="frame" data-screen-label="Edge AI Safety Center">
+        <div class="shell">
+          <header class="topbar">
+            <div class="brand">
+              <div class="mark" aria-hidden="true"></div>
+              <div class="titles">
+                <div class="t1">Edge AI Safety Center</div>
+                <div class="t2">i.MX6ULL x Orange Pi 5 · 端边协同安全态势中心</div>
+              </div>
+            </div>
+            <div class="spacer"></div>
+            <div class="links" aria-label="链路健康">
+              <div class="linkpill"><span class="dot up"></span><span class="lab">i.MX6ULL</span><span id="imxLink" class="val">SAFETY-FSM</span></div>
+              <div class="linkpill"><span id="opi5Dot" class="dot idle"></span><span class="lab">OPi5 AI</span><span id="opi5Link" class="val">IDLE</span></div>
+              <div class="linkpill"><span id="flaskDot" class="dot idle"></span><span class="lab">FLASK</span><span id="flaskLink" class="val">API</span></div>
+            </div>
+            <div class="clock">
+              <div id="clockTime" class="time">--:--:--</div>
+              <div id="refreshText" class="sub">labbox_001 · contract 1.0 · waiting</div>
+            </div>
+          </header>
+
+          <main class="grid">
+            <section class="col left-col">
+              <div id="stateHero" class="statehero state-unknown">
+                <div class="glow"></div>
+                <div class="row1">
+                  <div>
+                    <div class="state-tag">当前安全状态 · STATE</div>
+                    <div id="currentState" class="state-name">UNKNOWN</div>
+                  </div>
+                  <div id="statePulse" class="state-pulse"></div>
+                </div>
+                <div id="stateDesc" class="desc">等待后端事件。空状态和旧事件会保持兼容显示。</div>
+                <div class="risk">
+                  <div class="risk-top">
+                    <span class="lab">RISK_SCORE · 本地融合 0-10</span>
+                    <span class="num"><b id="riskScore">-</b> / 10</span>
+                  </div>
+                  <div id="riskBar" class="risk-bar" aria-label="risk score"></div>
+                </div>
+                <div class="state-meta">
+                  <div class="cell"><div class="k">DEVICE_ID</div><div id="deviceId" class="v">-</div></div>
+                  <div class="cell"><div class="k">SEQ</div><div id="seq" class="v">-</div></div>
+                  <div class="cell"><div class="k">NEED_SNAP</div><div id="needSnap" class="v">-</div></div>
+                  <div class="cell"><div class="k">RGB LAMP</div><div id="rgbLamp" class="v">-</div></div>
+                  <div class="cell"><div class="k">TIMESTAMP</div><div id="timestamp" class="v small">-</div></div>
+                  <div class="cell"><div class="k">CONTRACT</div><div id="contractVersion" class="v small">-</div></div>
+                </div>
+              </div>
+
+              <section class="panel lockcard tight">
+                <div class="panel-head">
+                  <h2><span class="ix">07</span> 本地安全闭环 · SAFETY LOCK</h2>
+                  <span id="controlAllowedBadge" class="badge violet">control_allowed = false</span>
+                </div>
+                <div class="lock-banner">
+                  <div class="ic">L</div>
+                  <div>
+                    <div class="lt">AI 仅解释，绝不控制执行器</div>
+                    <div class="ls">OPi5 / Qwen3-VL / Flask 只返回 risk_hint + 解释</div>
+                  </div>
+                </div>
+                <div class="loop">
+                  <div class="loop-step"><div class="node hot">IN</div><div class="txt"><b>flame=1 或 mq2=1</b><div class="s">本地数字量强触发</div></div></div>
+                  <div class="loop-arrow">↓</div>
+                  <div class="loop-step"><div class="node">FSM</div><div class="txt"><b>safety_fsm → ALARM</b><div class="s">纯本地判定，不经网络 / AI</div></div></div>
+                  <div class="loop-arrow">↓</div>
+                  <div class="loop-step"><div class="node">OUT</div><div class="txt"><b>蜂鸣器 + RGB + 继电器 + 水泵</b><div class="s">i.MX6ULL 直驱 · gpio122 / PCA9685</div></div></div>
+                </div>
+                <div class="note-strip"><span class="lk">OK 离线成立</span> 无网络 · 无 AI · 无 Flask 时，本地 ALARM 仍闭环</div>
+              </section>
+            </section>
+
+            <section class="col center-col">
+              <section class="panel tight sensor-panel">
+                <div class="panel-head">
+                  <h2><span class="ix">10</span> 传感器 · P0 本地安全输入</h2>
+                  <span class="meta">J5 直连 GPIO · 不依赖 I2C</span>
+                </div>
+                <div id="sensorGrid" class="tilewrap sensors-grid"></div>
+              </section>
+
+              <section class="panel tight actuator-panel">
+                <div class="panel-head">
+                  <h2><span class="ix">11</span> 执行器 · 本地状态机直驱</h2>
+                  <span class="meta">AI / Flask 不参与控制</span>
+                </div>
+                <div id="actuatorGrid" class="tilewrap act-grid"></div>
+              </section>
+            </section>
+
+            <section class="col ai-col">
+              <section class="panel ai-panel">
+                <div class="panel-head">
+                  <h2><span class="ix">09</span> AI 视觉 · ORANGE PI 5 · QWEN3-VL</h2>
+                  <span id="aiState" class="badge violet">解释增强 · 非控制源</span>
+                </div>
+                <div class="vision-img">
+                  <div id="imageEmpty" class="vision-placeholder">NORMAL — 未触发抓拍</div>
+                  <img id="visionImage" alt="视觉抓拍图" hidden>
+                  <div id="crosshair" class="crosshair" hidden></div>
+                  <div class="vision-overlay">
+                    <div class="vimeta">
+                      <div><span id="frameId" class="vchip">无快照 · need_snap=false</span></div>
+                      <div class="panbox"><span id="panTilt" class="vchip">pan -° · tilt -°</span></div>
+                    </div>
+                  </div>
+                </div>
+                <a id="imageLink" class="image-url" href="#" target="_blank" rel="noreferrer">image_url: -</a>
+
+                <div id="aiOffline" class="ai-offline" hidden>
+                  <div class="ic">!</div>
+                  <div><div class="ot">AI 降级 · OPi5 OFFLINE</div><div id="aiOfflineText" class="os">-</div></div>
+                </div>
+
+                <div class="vlm-head">
+                  <span id="vlmModel" class="vlm-model">◆ qwen3-vl-2b</span>
+                  <span class="eyebrow">本地 RKNN 推理 · 无公网</span>
+                </div>
+                <div class="vlm-row">
+                  <div class="vlm-metric"><div class="k">RISK_HINT</div><div id="riskHint" class="v">-</div></div>
+                  <div class="vlm-metric"><div class="k">AI OK</div><div id="aiOk" class="v">-</div></div>
+                  <div class="vlm-metric"><div class="k">FACES</div><div id="faceMetric" class="v">-</div></div>
+                </div>
+                <div class="vlm-summary">
+                  <span class="lead">SUMMARY</span>
+                  <span id="aiSummary">-</span>
+                  <div class="vlm-expl"><b>EXPLANATION · </b><span id="aiExplanation">-</span></div>
+                </div>
+                <div class="labels">
+                  <span class="eyebrow label-title">vlm_result.labels</span>
+                  <div id="labelsList" class="labels-inline">-</div>
+                </div>
+                <div id="objectsList" class="objects-empty">VLM 无 bbox / 未生成目标框</div>
+                <div id="facesList" class="objects-empty compact">faces: -</div>
+                <div id="latencyStrip" class="latency-strip"></div>
+                <div class="ctrl-lock">
+                  <div class="ic">L</div>
+                  <div>
+                    <div class="tt">control_allowed = <b id="controlAllowed">false</b></div>
+                    <div class="ss">AI 返回 control_allowed=false，i.MX6ULL 仅采纳 risk_hint 作参考。</div>
+                  </div>
+                  <span class="badge hot">LOCKED</span>
+                </div>
+              </section>
+            </section>
+
+            <section class="bottom-band">
+              <section class="panel events">
+                <div class="panel-head">
+                  <h2><span class="ix">06</span> 最近事件流 · /api/events</h2>
+                  <div class="event-meta"><span id="spoolBadge" class="spill" hidden>SPOOL +0</span><span id="eventCount" class="meta">0 条 · 倒序</span></div>
+                </div>
+                <div id="errorBox" class="error-box" hidden></div>
+                <div class="evt-scroll">
+                  <table class="evt-table">
+                    <colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col><col class="c6"></colgroup>
+                    <thead><tr><th>时间</th><th>SEQ</th><th>状态</th><th>风险</th><th>AI 摘要</th><th>传感器</th></tr></thead>
+                    <tbody id="eventsBody"><tr><td colspan="6" class="empty">暂无事件</td></tr></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="degrade-wrap">
+                <section class="panel tight degrade-panel">
+                  <div class="panel-head">
+                    <h2><span class="ix">06.9</span> 故障降级 · DEGRADATION</h2>
+                    <span id="degradeMode" class="meta">本地优先</span>
+                  </div>
+                  <div id="degradeList" class="degrade-list"></div>
+                  <div class="ev-strip">
+                    <span class="eyebrow evidence-title">答辩证据 · 已验证</span>
+                    <span class="ev-line"><span class="chk">OK</span> Task10 P0 · Task11 P1 · Qwen3-VL 2B · 端边垂直切片</span>
+                  </div>
+                </section>
+              </section>
+            </section>
+          </main>
+
+          <footer class="scenbar">
+            <button class="play-btn" type="button" aria-label="演示状态">II</button>
+            <div id="scenarioChips" class="scen-chips"></div>
+            <div class="legend">
+              <span class="lg"><i class="normal"></i>NORMAL</span>
+              <span class="lg"><i class="warn"></i>WARN</span>
+              <span class="lg"><i class="verify"></i>VERIFY</span>
+              <span class="lg"><i class="alarm"></i>ALARM</span>
+              <span class="lg"><i class="fault"></i>FAULT</span>
+            </div>
+          </footer>
+        </div>
       </div>
-      <span id="apiState" class="api-state">API</span>
-    </header>
-
-    <main class="layout">
-      <section class="panel status-panel">
-        <div class="panel-title">
-          <h2>当前状态</h2>
-          <span id="stateBadge" class="state-badge state-unknown">UNKNOWN</span>
-        </div>
-        <div class="metric-grid">
-          <div class="metric">
-            <span>STATE</span>
-            <strong id="currentState">暂无事件</strong>
-          </div>
-          <div class="metric">
-            <span>RISK_SCORE</span>
-            <strong id="riskScore">-</strong>
-          </div>
-          <div class="metric">
-            <span>DEVICE</span>
-            <strong id="deviceId">-</strong>
-          </div>
-          <div class="metric">
-            <span>SEQ</span>
-            <strong id="seq">-</strong>
-          </div>
-          <div class="metric wide">
-            <span>TIMESTAMP</span>
-            <strong id="timestamp">-</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>传感器</h2>
-        <div id="sensorGrid" class="chip-grid"></div>
-      </section>
-
-      <section class="panel">
-        <h2>执行器</h2>
-        <div id="actuatorGrid" class="chip-grid"></div>
-      </section>
-
-      <section class="panel events-panel">
-        <div class="panel-title">
-          <h2>最近 20 条事件</h2>
-          <span id="eventCount" class="subtle">0</span>
-        </div>
-        <div id="errorBox" class="error-box" hidden></div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>设备</th>
-                <th>状态</th>
-                <th>风险</th>
-                <th>传感器摘要</th>
-              </tr>
-            </thead>
-            <tbody id="eventsBody">
-              <tr>
-                <td colspan="5" class="empty">暂无事件</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </main>
+    </div>
 
     <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
   </body>
