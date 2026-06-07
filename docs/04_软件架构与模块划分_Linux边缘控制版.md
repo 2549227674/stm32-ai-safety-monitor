@@ -67,6 +67,8 @@ edge/imx6ull-controller/        edge/opi5-ai/               server/backend/
 
 不重写后端框架，只做兼容扩展：新增或兼容 `vision_json`、`ai_result_json`、`image_url`、`latency_ms`。若不改 schema，也可优先把新增字段保存进现有 `raw_json` 并在 API 返回中透出。
 
+Task06 已按最小兼容方案完成：不修改 SQLite schema，继续由 `events.raw_json` 保存完整 payload；`database.py` 在读取时透出 `contract_version/vision/ai_result/image_url/latency_ms`，旧事件缺字段时返回 `null`。Dashboard 新增 AI/视觉展示区，展示 `risk_hint`、summary、objects、faces、image URL/图片预览、latency、pan/tilt 与 `control_allowed=false`，且不把 AI/Flask 结果解释为执行器控制命令。证据见 `tests/integration/2026-06-07_backend_contract_extension.md`。
+
 ## 4.6 `common/contracts`
 
 `common/contracts/README.md` 只作为开发入口，权威字段表在 `docs/07_端边HTTP_JSON_Contract.md`。

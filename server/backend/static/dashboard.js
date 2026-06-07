@@ -10,6 +10,21 @@ const els = {
   deviceId: document.getElementById("deviceId"),
   seq: document.getElementById("seq"),
   timestamp: document.getElementById("timestamp"),
+  aiState: document.getElementById("aiState"),
+  aiEmpty: document.getElementById("aiEmpty"),
+  aiDetails: document.getElementById("aiDetails"),
+  aiOk: document.getElementById("aiOk"),
+  riskHint: document.getElementById("riskHint"),
+  controlAllowed: document.getElementById("controlAllowed"),
+  panTilt: document.getElementById("panTilt"),
+  aiSummary: document.getElementById("aiSummary"),
+  latencyMs: document.getElementById("latencyMs"),
+  objectsList: document.getElementById("objectsList"),
+  facesList: document.getElementById("facesList"),
+  imageBox: document.getElementById("imageBox"),
+  imageLink: document.getElementById("imageLink"),
+  visionImage: document.getElementById("visionImage"),
+  imageMissing: document.getElementById("imageMissing"),
   sensorGrid: document.getElementById("sensorGrid"),
   actuatorGrid: document.getElementById("actuatorGrid"),
   eventCount: document.getElementById("eventCount"),
@@ -44,6 +59,7 @@ function renderLatest(event) {
     els.stateBadge.className = "state-badge state-unknown";
     renderChips(els.sensorGrid, sensorKeys, {});
     renderChips(els.actuatorGrid, actuatorKeys, {});
+    renderAiPanel(null);
     return;
   }
 
@@ -56,6 +72,47 @@ function renderLatest(event) {
   els.stateBadge.className = `state-badge ${stateClass(event.state)}`;
   renderChips(els.sensorGrid, sensorKeys, event.sensors || {});
   renderChips(els.actuatorGrid, actuatorKeys, event.actuators || {});
+  renderAiPanel(event);
+}
+
+function renderAiPanel(event) {
+  const ai = event?.ai_result || null;
+  const vision = event?.vision || null;
+  const imageUrl = event?.image_url || vision?.image_url || "";
+  const hasAiResult = Boolean(ai || vision || imageUrl || event?.latency_ms);
+
+  els.aiEmpty.hidden = hasAiResult;
+  els.aiDetails.hidden = !hasAiResult;
+  els.aiState.textContent = hasAiResult ? "已接收 AI/视觉结果" : "暂无 AI/视觉结果";
+
+  if (!hasAiResult) {
+    els.aiOk.textContent = "-";
+    els.riskHint.textContent = "-";
+    els.controlAllowed.textContent = "false";
+    els.panTilt.textContent = "-";
+    els.aiSummary.textContent = "-";
+    els.latencyMs.textContent = "-";
+    els.objectsList.textContent = "无目标";
+    els.facesList.textContent = "无人脸结果";
+    renderImage("", false);
+    return;
+  }
+
+  const controlAllowed = ai?.control_allowed === true;
+  const panTilt = vision?.pan_tilt || {};
+  els.aiOk.textContent = ai?.ok === undefined ? "-" : String(Boolean(ai.ok));
+  els.riskHint.textContent = ai?.risk_hint ?? "-";
+  els.controlAllowed.textContent = String(controlAllowed);
+  els.controlAllowed.className = controlAllowed ? "unsafe-control" : "safe-control";
+  els.panTilt.textContent =
+    panTilt.pan_deg === undefined && panTilt.tilt_deg === undefined
+      ? "-"
+      : `${panTilt.pan_deg ?? "-"} / ${panTilt.tilt_deg ?? "-"}`;
+  els.aiSummary.textContent = ai?.summary || "-";
+  els.latencyMs.textContent = formatLatency(event.latency_ms);
+  renderObjectList(els.objectsList, ai?.objects || [], "无目标");
+  renderFaceList(els.facesList, ai?.faces || []);
+  renderImage(imageUrl, Boolean(imageUrl));
 }
 
 function renderChips(container, keys, data) {
@@ -75,7 +132,7 @@ function renderChips(container, keys, data) {
 function renderEvents(events) {
   els.eventCount.textContent = String(events.length);
   if (!events.length) {
-    els.eventsBody.innerHTML = '<tr><td colspan="5" class="empty">暂无事件</td></tr>';
+    els.eventsBody.innerHTML = '<tr><td colspan="6" class="empty">暂无事件</td></tr>';
     return;
   }
 
@@ -89,10 +146,91 @@ function renderEvents(events) {
         <td>${escapeHtml(event.device_id || "unknown")}</td>
         <td><span class="state-badge ${stateClass(event.state)}">${escapeHtml(event.state || "UNKNOWN")}</span></td>
         <td>${escapeHtml(String(event.risk_score ?? 0))}</td>
+        <td>${renderAiSummaryCell(event)}</td>
         <td>${escapeHtml(sensors)}</td>
       </tr>`;
     })
     .join("");
+}
+
+function renderAiSummaryCell(event) {
+  const ai = event?.ai_result;
+  if (!ai) return '<span class="subtle">-</span>';
+  const risk = ai.risk_hint ?? "-";
+  const summary = ai.summary || "AI result";
+  return `<span class="ai-risk">R${escapeHtml(risk)}</span> ${escapeHtml(summary)}`;
+}
+
+function renderObjectList(container, objects, emptyText) {
+  if (!Array.isArray(objects) || !objects.length) {
+    container.className = "list-box empty";
+    container.textContent = emptyText;
+    return;
+  }
+  container.className = "list-box";
+  container.innerHTML = objects
+    .map((item) => {
+      const label = item?.label || "unknown";
+      const score = item?.score === undefined ? "-" : Number(item.score).toFixed(2);
+      return `<div class="list-row">
+        <strong>${escapeHtml(label)}</strong>
+        <span>${escapeHtml(score)}</span>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderFaceList(container, faces) {
+  if (!Array.isArray(faces) || !faces.length) {
+    container.className = "list-box empty";
+    container.textContent = "无人脸结果";
+    return;
+  }
+  container.className = "list-box";
+  container.innerHTML = faces
+    .map((item) => {
+      const identity = item?.identity || "unknown";
+      const score = item?.score === undefined ? "-" : Number(item.score).toFixed(2);
+      return `<div class="list-row">
+        <strong>${escapeHtml(identity)}</strong>
+        <span>${escapeHtml(score)}</span>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderImage(imageUrl, shouldShow) {
+  els.imageBox.hidden = !shouldShow;
+  els.visionImage.hidden = true;
+  els.imageMissing.hidden = true;
+
+  if (!shouldShow) {
+    els.imageLink.removeAttribute("href");
+    els.visionImage.removeAttribute("src");
+    return;
+  }
+
+  els.imageLink.href = imageUrl;
+  els.imageLink.textContent = `打开图片：${imageUrl}`;
+  els.visionImage.onload = () => {
+    els.visionImage.hidden = false;
+    els.imageMissing.hidden = true;
+  };
+  els.visionImage.onerror = () => {
+    els.visionImage.hidden = true;
+    els.imageMissing.hidden = false;
+  };
+  els.visionImage.src = imageUrl;
+}
+
+function formatLatency(latency) {
+  if (!latency) return "-";
+  if (typeof latency === "number") return `${latency}ms`;
+  if (typeof latency !== "object") return String(latency);
+  return ["capture", "ai", "post"]
+    .filter((key) => latency[key] !== undefined)
+    .map((key) => `${key}:${latency[key]}ms`)
+    .join(" ") || "-";
 }
 
 async function refreshDashboard() {
@@ -122,7 +260,7 @@ async function refreshDashboard() {
 }
 
 function escapeHtml(value) {
-  return value.replace(/[&<>"']/g, (char) => {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => {
     const map = {
       "&": "&amp;",
       "<": "&lt;",

@@ -45,6 +45,57 @@
         </div>
       </section>
 
+      <section class="panel ai-panel">
+        <div class="panel-title">
+          <h2>AI / 视觉分析</h2>
+          <span id="aiState" class="subtle">暂无 AI/视觉结果</span>
+        </div>
+        <div id="aiEmpty" class="empty">暂无 AI/视觉结果</div>
+        <div id="aiDetails" class="ai-details" hidden>
+          <div class="metric-grid ai-metrics">
+            <div class="metric">
+              <span>AI 状态</span>
+              <strong id="aiOk">-</strong>
+            </div>
+            <div class="metric">
+              <span>RISK_HINT</span>
+              <strong id="riskHint">-</strong>
+            </div>
+            <div class="metric">
+              <span>CONTROL_ALLOWED</span>
+              <strong id="controlAllowed">false</strong>
+            </div>
+            <div class="metric">
+              <span>PAN / TILT</span>
+              <strong id="panTilt">-</strong>
+            </div>
+            <div class="metric wide">
+              <span>SUMMARY</span>
+              <strong id="aiSummary">-</strong>
+            </div>
+            <div class="metric wide">
+              <span>LATENCY</span>
+              <strong id="latencyMs">-</strong>
+            </div>
+          </div>
+          <div class="ai-columns">
+            <div>
+              <h3>Objects</h3>
+              <div id="objectsList" class="list-box empty">无目标</div>
+            </div>
+            <div>
+              <h3>Faces</h3>
+              <div id="facesList" class="list-box empty">无人脸结果</div>
+            </div>
+          </div>
+          <div id="imageBox" class="image-box" hidden>
+            <a id="imageLink" href="#" target="_blank" rel="noreferrer">打开图片</a>
+            <img id="visionImage" alt="视觉抓拍图" hidden>
+            <span id="imageMissing" class="subtle" hidden>图片未找到或不可预览</span>
+          </div>
+        </div>
+      </section>
+
       <section class="panel">
         <h2>传感器</h2>
         <div id="sensorGrid" class="chip-grid"></div>
@@ -69,12 +120,13 @@
                 <th>设备</th>
                 <th>状态</th>
                 <th>风险</th>
+                <th>AI 摘要</th>
                 <th>传感器摘要</th>
               </tr>
             </thead>
             <tbody id="eventsBody">
               <tr>
-                <td colspan="5" class="empty">暂无事件</td>
+                <td colspan="6" class="empty">暂无事件</td>
               </tr>
             </tbody>
           </table>
