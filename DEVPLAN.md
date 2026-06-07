@@ -14,7 +14,7 @@
 | P3 | Day 5 | Task04 V4L2 抓拍 | `v4l2_capture`、图片、格式记录 | 已通过：i.MX 生成可打开 JPEG 图片（640x480, MJPG, v4l2-ctl） |
 | P4 | Day 6–7 | Task05 OPi5 AI 服务 | mock/RKNN 服务 | Task05-A 已通过：OPi5 mock `/health` 与 `/api/infer/vision` 返回 AI JSON；Task05-B 继续 RKNN demo 盘点与接入 |
 | P5 | Day 8 | Task06 Flask 扩展 | DB 兼容、Dashboard AI 区域 | 已通过：旧事件兼容，新 AI 事件字段可读取和展示 |
-| P6 | Day 9–10 | Task07 端边垂直切片 | 完整事件、图片、AI 结果 | Task07-A 已通过：i.MX 抓拍→OPi5 mock AI→Flask→Dashboard 完整链路，event_id=1031 |
+| P6 | Day 9–10 | Task07 端边垂直切片 | 完整事件、图片、AI 结果 | Task07-A 已通过 + Task07-B 已通过：imx_safetyd-lite 实时 GPIO + 降级/spool |
 | P7 | Day 10–11 | Task08 云台巡检 | pan/tilt 扫描日志、视频 | Task08-A 已通过：三点扫描 pan 60/90/120° + mock AI + Flask 上报 |
 | P8 | Day 12–14 | 报告/PPT/录屏 | 报告、PPT、上报表、演示视频 | 可答辩、可回放 |
 

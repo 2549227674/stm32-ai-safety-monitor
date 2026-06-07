@@ -21,11 +21,11 @@
 | 工作目录 | WSL 原生目录 `/home/qbz415/SafetyMonitor`；不要再使用 `/mnt/c/program1/SafetyMonitor` 开发 |
 | 当前分支 | `migration/imx6ull-opi5-edge-ai` |
 | 最新迁移提交 | `414e3f0 task05-a: bring up opi5 mock ai service`；Task06 已完成并在本轮提交 |
-| 总体阶段 | Task08-A 已完成：云台分时巡检 + 多角度抓拍（mock AI）通过 |
+| 总体阶段 | Task07-B 已完成：imx_safetyd-lite 实时 GPIO + 降级/spool 通过 |
 | 新主线 | i.MX6ULL Pro + Orange Pi 5 + Flask |
 | 旧主线 | STM32 + ESP32-CAM 归档为 legacy |
 | 当前执行器 | 本地 Codex |
-| 首要目标 | Task07-B imx_safetyd 初版 / Task05-B RKNN demo / 报告与答辩材料，待用户决策 |
+| 首要目标 | Task09 最终演示 / Task05-B RKNN demo / 报告与答辩材料，待用户决策 |
 
 ## 2. 项目主线与三机角色
 
@@ -166,6 +166,7 @@ grep -RIn "\[CLAUDE_CODE_TODO" .
 | Task06 Flask 契约扩展 | 已通过 | `tests/integration/2026-06-07_backend_contract_extension.md` | 未修改 DB schema；旧 `/api/events` 兼容；`/api/status/latest` 与 `/api/events` 从 `raw_json` 透出 `contract_version/vision/ai_result/image_url/latency_ms`；Dashboard 新增 AI/视觉展示区和 AI 摘要列，`control_allowed=false` 只展示不控制。 |
 | Task07-A 端边最小垂直切片 | 已通过 | `tests/integration/2026-06-07_end_edge_vertical_slice.md`、`edge/imx6ull-controller/scripts/imx_vertical_slice_once.sh` | i.MX6ULL 一次性脚本完成抓拍→POST OPi5 mock AI→组装端边事件→POST Flask 完整链路；`/api/status/latest` 返回含 `sensors/actuators/risk_score/vision/ai_result/latency_ms` 的完整事件；`control_allowed=false`；延迟 capture=470ms/ai=135ms/post=146ms/total=987ms；OPi5 不可达时脚本不崩溃。本轮使用 mock AI，模拟 sensors。 |
 | Task08-A 云台分时巡检 | 已通过 | `tests/imx6ull/2026-06-07_pan_tilt_demo.md`、`edge/imx6ull-controller/src/pca9685_set_pose.c`、`edge/imx6ull-controller/scripts/pan_tilt_scan_once.sh` | PCA9685+MG90S 三点扫描（pan 60/90/120°, tilt 90°），每点停稳后 V4L2 抓拍并 POST OPi5 mock AI；选择最高 risk_hint 方向停留（tie→center）；Flask event_id=1033 含 `vision.scan[3]`、`vision.selected`、`ai_result`、`latency_ms`；`control_allowed=false`；无抖动/卡死/压降/发热/掉线。本轮使用 mock AI，模拟 sensors。 |
+| Task07-B imx_safetyd-lite | 已通过 | `tests/integration/2026-06-07_imx_safetyd_lite.md`、`edge/imx6ull-controller/scripts/imx_safetyd_lite.sh` | Shell 版 MVP 控制端：读取真实 PIR gpio117（sysfs fallback），按 NORMAL/VERIFY 生成事件；VERIFY 时抓拍→POST OPi5 mock AI→POST Flask；OPi5 不可达时生成干净 ai_result.ok=false 降级 JSON（不复用旧响应）；Flask 不可达时写入 pending spool，flush 可补发到 sent；`control_allowed=false`；`FORCE_VERIFY=1` 测试开关已验证。本轮使用 mock AI，door/flame/mq2 固定 0。 |
 
 ## 13. 完成任务后的固定回填
 
