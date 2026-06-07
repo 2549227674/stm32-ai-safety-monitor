@@ -155,6 +155,7 @@ def event_row_to_dict(row):
     }
 
     out["contract_version"] = raw.get("contract_version") if isinstance(raw, dict) else None
+    out["device_health"] = raw.get("device_health") if isinstance(raw, dict) else None
     out["vision"] = vision
     out["ai_result"] = raw.get("ai_result") if isinstance(raw, dict) else None
     out["image_url"] = (

@@ -26,7 +26,6 @@ DEFAULT_SENSORS = {
 }
 DEFAULT_ACTUATORS = {
     "relay": 0,
-    "fan": 0,
     "pump": 0,
     "buzzer": 0,
     "rgb_r": 0,
