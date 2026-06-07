@@ -19,6 +19,8 @@
 #define DEFAULT_DEVICE_ID "labbox_001"
 #define DEFAULT_GPIO_PIR 117
 #define DEFAULT_GPIO_ACTIVE_HIGH 1
+#define DEFAULT_GPIO_FLAME 119
+#define DEFAULT_GPIO_FLAME_ACTIVE_HIGH 1
 #define DEFAULT_CAPTURE_DEVICE "/dev/video1"
 #define DEFAULT_BASE_DIR "/opt/edge-ai-safety-monitor"
 #define DEFAULT_INTERVAL_SEC 2
@@ -33,6 +35,8 @@ typedef struct {
     char device_id[64];
     int gpio_pir;
     int gpio_active_high;
+    int gpio_flame;
+    int gpio_flame_active_high;
     char capture_device[64];
     char base_dir[256];
     int post_normal;
@@ -46,6 +50,7 @@ typedef struct {
     int pir;
     int door;
     int flame;
+    int flame_raw;
     int mq2;
 } SensorState;
 
@@ -159,6 +164,8 @@ static void usage(const char *prog) {
         "  --device-id ID              default/env DEVICE_ID\n"
         "  --gpio-pir N                default/env GPIO_PIR\n"
         "  --gpio-active-high 0|1      default/env GPIO_ACTIVE_HIGH\n"
+        "  --gpio-flame N              default/env GPIO_FLAME\n"
+        "  --gpio-flame-active-high 0|1 default/env GPIO_FLAME_ACTIVE_HIGH\n"
         "  --capture-device PATH       default/env CAPTURE_DEVICE\n"
         "  --base-dir PATH             default/env BASE_DIR\n"
         "  --post-normal 0|1           default/env POST_NORMAL\n"
@@ -221,6 +228,8 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     set_from_env_string(cfg->mode, sizeof(cfg->mode), "MODE", DEFAULT_MODE);
     cfg->gpio_pir = set_from_env_int("GPIO_PIR", DEFAULT_GPIO_PIR);
     cfg->gpio_active_high = set_from_env_int("GPIO_ACTIVE_HIGH", DEFAULT_GPIO_ACTIVE_HIGH);
+    cfg->gpio_flame = set_from_env_int("GPIO_FLAME", DEFAULT_GPIO_FLAME);
+    cfg->gpio_flame_active_high = set_from_env_int("GPIO_FLAME_ACTIVE_HIGH", DEFAULT_GPIO_FLAME_ACTIVE_HIGH);
     cfg->post_normal = set_from_env_int("POST_NORMAL", 0);
     cfg->force_verify = set_from_env_int("FORCE_VERIFY", 0);
     cfg->interval_sec = set_from_env_int("INTERVAL_SEC", DEFAULT_INTERVAL_SEC);
@@ -245,6 +254,16 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
         } else if (strcmp(argv[i], "--gpio-active-high") == 0 && i + 1 < argc) {
             if (parse_int(argv[++i], &cfg->gpio_active_high) != 0) {
                 fprintf(stderr, "--gpio-active-high requires 0|1\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-flame") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_flame) != 0) {
+                fprintf(stderr, "--gpio-flame requires integer\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-flame-active-high") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_flame_active_high) != 0) {
+                fprintf(stderr, "--gpio-flame-active-high requires 0|1\n");
                 return -1;
             }
         } else if (strcmp(argv[i], "--capture-device") == 0 && i + 1 < argc) {
@@ -278,6 +297,7 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
         return -1;
     }
     if (cfg->gpio_pir < 0 || (cfg->gpio_active_high != 0 && cfg->gpio_active_high != 1) ||
+        cfg->gpio_flame < 0 || (cfg->gpio_flame_active_high != 0 && cfg->gpio_flame_active_high != 1) ||
         (cfg->post_normal != 0 && cfg->post_normal != 1) ||
         (cfg->force_verify != 0 && cfg->force_verify != 1) ||
         cfg->interval_sec < 1 || cfg->interval_sec > 3600) {
@@ -469,10 +489,12 @@ static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *
     long long t0 = now_ms();
     sensors->door = 0;
     sensors->flame = 0;
+    sensors->flame_raw = -1;
     sensors->mq2 = 0;
     sensors->raw_value = -1;
     sensors->pir = 0;
 
+    /* PIR */
     if (ensure_gpio_export(cfg->gpio_pir) == 0) {
         sensors->raw_value = read_gpio_value(cfg->gpio_pir);
     }
@@ -481,11 +503,25 @@ static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *
         sensors->pir = cfg->gpio_active_high ? sensors->raw_value : !sensors->raw_value;
     } else {
         sensors->pir = 0;
-        copy_string(ctx->last_error, sizeof(ctx->last_error), "gpio_read_failed");
+        copy_string(ctx->last_error, sizeof(ctx->last_error), "pir_read_failed");
     }
 
     if (cfg->force_verify) {
         sensors->pir = 1;
+    }
+
+    /* Flame */
+    if (ensure_gpio_export(cfg->gpio_flame) == 0) {
+        sensors->flame_raw = read_gpio_value(cfg->gpio_flame);
+    }
+
+    if (sensors->flame_raw == 0 || sensors->flame_raw == 1) {
+        sensors->flame = cfg->gpio_flame_active_high ? sensors->flame_raw : !sensors->flame_raw;
+    } else {
+        sensors->flame = 0;
+        if (ctx->last_error[0] == '\0') {
+            copy_string(ctx->last_error, sizeof(ctx->last_error), "flame_read_failed");
+        }
     }
 
     ctx->gpio_ms = (int)(now_ms() - t0);
@@ -493,10 +529,26 @@ static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *
 
 static void compute_state(const AppConfig *cfg, const SensorState *sensors, EventContext *ctx) {
     (void)cfg;
+    int local_score = 0;
+
+    /* Strong trigger: flame=1 → ALARM directly, independent of AI/network */
+    if (sensors->flame) {
+        local_score += 6;
+    }
     if (sensors->pir) {
+        local_score += 2;
+    }
+    /* door skipped for now (Task10-A deferred) */
+
+    if (sensors->flame) {
+        copy_string(ctx->state, sizeof(ctx->state), "ALARM");
+        ctx->risk_score_before_ai = local_score;
+        ctx->risk_score = local_score;
+        ctx->need_snap = true;
+    } else if (sensors->pir) {
         copy_string(ctx->state, sizeof(ctx->state), "VERIFY");
-        ctx->risk_score_before_ai = 3;
-        ctx->risk_score = 3;
+        ctx->risk_score_before_ai = local_score;
+        ctx->risk_score = local_score;
         ctx->need_snap = true;
     } else if (sensors->raw_value < 0) {
         copy_string(ctx->state, sizeof(ctx->state), "FAULT");
@@ -695,7 +747,7 @@ static void post_opi5_ai(const AppConfig *cfg, const SensorState *sensors, Event
     if (!ctx->capture_ok || !path_exists(ctx->capture_file)) {
         write_fallback_ai(ctx->ai_file, "capture_unavailable");
         copy_string(ctx->ai_status, sizeof(ctx->ai_status), "offline");
-        ctx->risk_score = 4;
+        /* Keep local risk_score; AI offline should not lower local evidence */
         ctx->ai_ms = (int)(now_ms() - t0);
         return;
     }
@@ -741,7 +793,7 @@ static void post_opi5_ai(const AppConfig *cfg, const SensorState *sensors, Event
         const char *reason = (ai_code == 200) ? "opi5_protocol_error" : "opi5_unreachable";
         write_fallback_ai(ctx->ai_file, reason);
         copy_string(ctx->ai_status, sizeof(ctx->ai_status), (ai_code == 200) ? "protocol_error" : "offline");
-        ctx->risk_score = 4;
+        /* Keep local risk_score; AI offline should not lower local evidence */
         log_msg("[ai] degraded: HTTP %03d, ai_status=%s", ai_code, ctx->ai_status);
     }
 }
@@ -781,7 +833,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  \"latency_ms\": {\"gpio\": %d, \"capture\": %d, \"ai\": %d, \"post\": %d, \"total\": %d},\n"
             "  \"diagnostics\": {\n"
             "    \"program\": \"imx_safetyd_c\",\n"
-            "    \"gpio\": {\"pir_gpio\": %d, \"raw_value\": %d, \"active_high\": %s},\n"
+            "    \"gpio\": {\"pir_gpio\": %d, \"raw_value\": %d, \"active_high\": %s, \"flame_gpio\": %d, \"flame_raw\": %d, \"flame_active_high\": %s},\n"
             "    \"ai_status\": \"%s\",\n"
             "    \"backend_status\": \"%s\",\n"
             "    \"spool_path\": %s,\n"
@@ -792,6 +844,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             sensors->door, sensors->pir, sensors->flame, sensors->mq2, rgb_b, ctx->seq,
             ctx->capture_ok ? "true" : "false", ai_json, ctx->gpio_ms, ctx->capture_ms, ctx->ai_ms,
             post_ms, total_ms, cfg->gpio_pir, sensors->raw_value, cfg->gpio_active_high ? "true" : "false",
+            cfg->gpio_flame, sensors->flame_raw, cfg->gpio_flame_active_high ? "true" : "false",
             ctx->ai_status, backend_status, spool_path ? spool_path : "null", cfg->force_verify ? "true" : "false");
     fclose(fp);
 }
@@ -842,11 +895,12 @@ static void write_status_json(const AppPaths *paths, const EventContext *ctx, co
             "  \"last_seq\": %d,\n"
             "  \"last_state\": \"%s\",\n"
             "  \"last_pir\": %d,\n"
+            "  \"last_flame\": %d,\n"
             "  \"last_risk_score\": %d,\n"
             "  \"last_ai_status\": \"%s\",\n"
             "  \"last_backend_status\": \"%s\",\n"
             "  \"last_error\": ",
-            ctx->seq, ctx->state[0] ? ctx->state : "NONE", sensors ? sensors->pir : 0, ctx->risk_score,
+            ctx->seq, ctx->state[0] ? ctx->state : "NONE", sensors ? sensors->pir : 0, sensors ? sensors->flame : 0, ctx->risk_score,
             ctx->ai_status[0] ? ctx->ai_status : "skipped",
             ctx->backend_status[0] ? ctx->backend_status : "none");
     if (ctx->last_error[0]) {
@@ -874,8 +928,9 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
 
     read_gpio(cfg, &sensors, &ctx);
     compute_state(cfg, &sensors, &ctx);
-    log_msg("[gpio] gpio%d raw=%d pir=%d active_high=%d force_verify=%d",
-            cfg->gpio_pir, sensors.raw_value, sensors.pir, cfg->gpio_active_high, cfg->force_verify);
+    log_msg("[gpio] gpio%d raw=%d pir=%d active_high=%d force_verify=%d | gpio%d flame_raw=%d flame=%d flame_ah=%d",
+            cfg->gpio_pir, sensors.raw_value, sensors.pir, cfg->gpio_active_high, cfg->force_verify,
+            cfg->gpio_flame, sensors.flame_raw, sensors.flame, cfg->gpio_flame_active_high);
     log_msg("[state] %s risk_before_ai=%d need_snap=%s",
             ctx.state, ctx.risk_score_before_ai, ctx.need_snap ? "true" : "false");
 
