@@ -1,0 +1,15 @@
+[Unit]
+Description=i.MX6ULL Edge Safety Monitor Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/edge-ai-safety-monitor/imx-safetyd.env
+ExecStart=/opt/edge-ai-safety-monitor/imx_safetyd --mode loop
+Restart=on-failure
+RestartSec=3
+WorkingDirectory=/opt/edge-ai-safety-monitor
+
+[Install]
+WantedBy=multi-user.target

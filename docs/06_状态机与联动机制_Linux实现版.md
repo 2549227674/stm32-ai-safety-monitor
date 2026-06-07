@@ -127,3 +127,18 @@ while (running) {
     sleep_until_next_cycle();
 }
 ```
+
+## 6.11 Task07-C C 版 imx_safetyd 落地状态
+
+Task07-C 已落地 C 版主控程序 `edge/imx6ull-controller/src/imx_safetyd.c`，当前实现范围：
+
+- 支持 `--mode once`、`--mode loop`、`--mode flush`。
+- 通过 sysfs fallback 读取真实 PIR `gpio117`；本轮只测到空闲 `raw=0`，VERIFY 场景使用 `--force-verify 1`，未把 PIR 人工触发写成已通过。
+- 实现 NORMAL/VERIFY/FAULT 最小状态机：`pir=0 -> NORMAL`，`pir=1 -> VERIFY`，GPIO 读取失败可记录 FAULT/diagnostics。
+- VERIFY 时调用 `v4l2-ctl` 抓拍，再调用 `curl` 请求 OPi5 mock AI。
+- AI 正常时按 `risk_score = min(10, 3 + risk_hint)` 融合；OPi5 不可达时生成干净 fallback `ai_result.ok=false/mode=offline/control_allowed=false`，`risk_score=4`。
+- Flask 不可达时写入 `/opt/edge-ai-safety-monitor/spool/imx-safetyd/pending/`，`flush` 模式恢复后移动到 `sent/`。
+- 每次运行写 `/opt/edge-ai-safety-monitor/run/imx_safetyd_status.json` 和 `/opt/edge-ai-safety-monitor/run/imx_safetyd.log`。
+- 本轮不真实驱动继电器、蜂鸣器、风扇、水泵；`actuators` 仍是安全态事件字段，AI/OPi5/Flask 不控制执行器。
+
+证据见 `tests/integration/2026-06-07_imx_safetyd_c.md`。

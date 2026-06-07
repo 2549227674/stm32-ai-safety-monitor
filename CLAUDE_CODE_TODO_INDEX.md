@@ -1,6 +1,6 @@
 # CLAUDE_CODE_TODO_INDEX.md — 全部待办总表
 
-生成时间：2026-06-07T10:46:11+0800
+生成时间：2026-06-07T11:51:10+0800
 
 本文件由文档包中的 `[CLAUDE_CODE_TODO | 类型]` 标记汇总生成。完成待办后，请回填原文件并重新生成本索引。
 
@@ -8,7 +8,7 @@
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
 |---|---|---|---|
-| `DEVPLAN.md:54` | 确认最终 Dashboard 部署位置 | 用户拍板：最终使用 PC Flask，还是迁移 Flask 到 OPi5。 | 最终演示脚本与部署命令只保留一种主方案。 |
+| `DEVPLAN.md:70` | 确认最终 Dashboard 部署位置 | 用户拍板：最终使用 PC Flask，还是迁移 Flask 到 OPi5。 | 最终演示脚本与部署命令只保留一种主方案。 |
 | `README.md:71` | 确认最终演示是否必须完全脱离 PC | 用户决定最终演示形态：PC 运行 Flask，或 OPi5 同时运行 Flask + AI。 | 明确写入“最终演示部署位置”，并更新相关 Task。 |
 | `docs/05_开发计划与MVP验收标准_Linux_RKNN版.md:60` | 确认 MVP 是否允许 AI 服务先 mock 再替换 RKNN | 用户确认答辩底线：mock 只作为联调手段，最终是否必须跑真 RKNN。 | MVP 标准与最终报告措辞一致。 |
 
@@ -23,7 +23,7 @@
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
 |---|---|---|---|
-| `AGENTS.md:40` | 逐项验证新硬件状态表 | 按 Task02–08 执行真实命令和硬件测试，逐项把“待验证”改为“已验证/失败/绕过”。 | 每项都有 tests 记录、命令输出或照片/波形证据。 |
+| `AGENTS.md:83` | 逐项验证新硬件状态表 | 按 Task02–08 执行真实命令和硬件测试，逐项把“待验证”改为“已验证/失败/绕过”。 | 每项都有 tests 记录、命令输出或照片/波形证据。 |
 | `CLAUDE_CODE_TASK_01_repo_migration_legacy_archive.md:11` | 确认当前仓库工作区是否干净 | 运行 `git status` 并决定是否先提交/暂存/备份。 | 工作区无意外未提交修改，或已明确保留。 |
 | `common/contracts/README.md:19` | 从 docs/07 生成或同步 JSON Schema | Task06/07 后根据实际 API 生成 `event_v1.schema.json` 和 `infer_v1.schema.json`。 | schema 能验证测试 payload。 |
 | `docs/00_README.md:72` | 迁移分支落地后核对 docs/00 链接 | 解压本包到迁移分支后，运行 `find docs -maxdepth 2 -type f` 并核对文件名。 | 所有链接路径存在，无 `docs/15`。 |
@@ -41,7 +41,7 @@
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
 |---|---|---|---|
 | `CLAUDE_CODE_TASK_05_opi5_rknn_inference_service.md:11` | 确认 OPi5 系统与 RKNN 依赖 | 运行系统版本、Python 版本、已有 RKNN demo 盘点。 | 形成 OPi5 资产清单和首选 demo。 |
-| `DEVPLAN.md:59` | Task05-B 盘点并验证 OPi5 与 PC 上已有 RKNN 仓库 | Claude Code 在 PC/OPi5 上列出可运行 demo、模型文件、依赖版本；选择第一个可接入的 demo，并真实运行至少一个最小 RKNN demo。 | 形成 `edge/opi5-ai/models/README.md` 和 `tests/opi5/YYYY-MM-DD_rknn_inventory.md`。 |
+| `DEVPLAN.md:63` | Task05-B 盘点并验证 OPi5 与 PC 上已有 RKNN 仓库 | Claude Code 在 PC/OPi5 上列出可运行 demo、模型文件、依赖版本；选择第一个可接入的 demo，并真实运行至少一个最小 RKNN demo。 | 形成 `edge/opi5-ai/models/README.md` 和 `tests/opi5/YYYY-MM-DD_rknn_inventory.md`。 |
 | `docs/09_OrangePi5_RKNN本地AI推理与解释方案.md:25` | 盘点 PC 和 OPi5 上已有 RKNN 仓库与可运行 demo | Claude Code 在本机与 OPi5 上列目录、运行已有 demo，选择最小可接入模型。 | 产出 RKNN 资产清单：模型名、输入尺寸、类别、运行命令、是否通过。 |
 | `docs/09_OrangePi5_RKNN本地AI推理与解释方案.md:85` | 确认 rknn-llm 在 OPi5 上是否能稳定运行 | 优先不纳入 MVP；若有余力，运行最小 demo，记录延迟和内存。 | 能在 OPi5 上生成简短文本，且不影响视觉服务稳定性。 |
 | `edge/opi5-ai/models/README.md:9` | 填写 OPi5 可用 RKNN 模型清单 | 运行模型盘点命令，记录可用 `.rknn`、demo、依赖版本。 | 至少选出一个可用于 Task05 的 demo 模型。 |

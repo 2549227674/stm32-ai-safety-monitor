@@ -5,6 +5,7 @@
 #   便捷目标: scripts/build_imx6ull.sh gpio_test -> build/imx6ull/gpio_test
 #   便捷目标: scripts/build_imx6ull.sh pca9685_pwm_test -> build/imx6ull/pca9685_pwm_test
 #   便捷目标: scripts/build_imx6ull.sh pca9685_servo_test -> build/imx6ull/pca9685_servo_test
+#   便捷目标: scripts/build_imx6ull.sh imx_safetyd -> build/imx6ull/imx_safetyd
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib_inventory.sh
@@ -32,6 +33,10 @@ case "$TARGET_OR_SRC" in
     SRC="edge/imx6ull-controller/src/pca9685_set_pose.c"
     OUT_NAME="${2:-pca9685_set_pose}"
     ;;
+  imx_safetyd)
+    SRC="edge/imx6ull-controller/src/imx_safetyd.c"
+    OUT_NAME="${2:-imx_safetyd}"
+    ;;
   *)
     SRC="$TARGET_OR_SRC"
     OUT_NAME="${2:-hello_imx6ull}"
@@ -53,5 +58,5 @@ echo "[build] CC = ${CC:?SDK 未提供 \$CC}"
 
 mkdir -p "$OUT_DIR"
 # shellcheck disable=SC2086
-$CC "$SRC" -o "$OUT_DIR/$OUT_NAME"
+$CC -Wall -Wextra -Wno-format-truncation -O2 "$SRC" -o "$OUT_DIR/$OUT_NAME"
 echo "[build] 产物: $OUT_DIR/$OUT_NAME"
