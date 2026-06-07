@@ -18,6 +18,7 @@
 | P7 | Day 10–11 | Task08 云台巡检 | pan/tilt 扫描日志、视频 | Task08-A 已通过：三点扫描 pan 60/90/120° + mock AI + Flask 上报 |
 | P8 | Day 12–14 | 报告/PPT/录屏 | 报告、PPT、上报表、演示视频 | 可答辩、可回放 |
 | P0-real | Day 12–14 | Task10 P0 传感器/执行器真实化 | 真实 GPIO 输入/输出、本地 ALARM 证据 | 10-A→10-E 垂直切片逐个通过；断网/断 AI 仍本地 ALARM |
+| P1-ext | Day 15+ | Task11 P1 扩展 | OLED + relay + soc_temp + pump | 11-A→11-D 垂直切片逐个通过；文档入库 / 待硬件切片验证 |
 
 ## 3. MVP 锁定范围
 
@@ -86,6 +87,8 @@ Task07-D 为工程化增强项，不作为当前 MVP 验收阻塞项。当前 MV
   - 目标：将当前单文件 imx_safetyd.c 拆分为 gpio、camera、http、event、spool、fsm、main 等模块。
   - 收益：结构更清晰，便于报告展示和后续维护。
   - 风险：拆分可能引入集成问题，必须保持 Task07-C 已通过行为不退化。
+
+Task11 P1 扩展：文档已入库，待硬件切片验证。P1 全部走 I2C 总线 + PCA9685 空闲通道 + SoC 内部温度，不占用 P0 的直连 GPIO。切片顺序：11-A OLED → 11-B relay → 11-C soc_temp → 11-D pump water tank。
 
 Task10 P0 传感器/执行器真实化：待执行。门磁/火焰/MQ-2/PIR 四路输入读真实 GPIO，蜂鸣器/RGB 两路输出真实驱动。按 10-A→10-E 垂直切片逐个验证，不改 OPi5/AI，不改 Flask schema。核心价值：把 door/flame/mq2 固定 0、执行器仅事件字段的 caveat 逐步替换为真实本地安全闭环证据。引脚以 `CANONICAL_DECISIONS.md` 0.6 为准。
 

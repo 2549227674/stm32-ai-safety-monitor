@@ -213,7 +213,85 @@ P0 范围：门磁、PIR、火焰、MQ-2 四路本地安全输入 + 蜂鸣器、
 - 执行器仍只由 i.MX6ULL 本地状态机驱动；AI/OPi5/Flask 不参与，`control_allowed` 保持 `false`。
 - 继电器、风扇、水泵、温湿度、MPU6050 属于 P1/P2，不进入 Task10。
 
-## 0.7 不可违反的硬约束
+## 0.7 i.MX6ULL P1 扩展分配（唯一事实源）
+
+P1 是在 P0 本地安全闭环之上的扩展层：OLED 本地状态屏、继电器、SoC 温度设备热健康、隔离水箱水泵演示。
+
+设计前提：P0 已用 J5 D0–D7 八路直连 GPIO，且 Task10-E2 已把 RGB 视觉增强放到 PCA9685 CH2/CH3/CH4。**P1 不再占用 J5 直连 GPIO**，全部走 I2C 总线 + PCA9685 空闲通道 + SoC 内部温度（纯软件读取，无器件、无接线）。湿度不做。
+
+### I2C 总线设备（共用 J5 pin7/8，/dev/i2c-0，按地址区分）
+
+| 设备 | 方向 | I2C 地址 | 状态 | 备注 |
+|---|---|---|---|---|
+| PCA9685 | 输出驱动 | 0x40 | 已用 | 舵机 CH0/CH1 + RGB CH2/CH3/CH4 + P1 执行器 CH5/CH6/CH7 |
+| OLED SSD1306 | 显示 | 0x3C | 待验 | 本地状态屏，断网也能看；选 I2C 版 SSD1306 |
+| （PCA9685 all-call） | — | 0x70 | 保留 | 之前扫到的 0x70，不得占用，不作为独立设备使用 |
+
+I2C 总线只剩两个设备（PCA9685 + OLED），无温湿度模块，无地址冲突。
+
+> **[CLAUDE_CODE_TODO | VERIFY]** I2C 多设备共存：0x40 / 0x3C 同时 ACK，OLED 刷屏不影响舵机/RGB
+> - 期望产物/操作：接入后 `i2cdetect -y 0` 应同时看到 0x40 / 0x3C；OLED 能刷字且舵机/RGB 仍正常。
+> - 回填位置：CANONICAL 0.7；docs/03。
+> - 验收：两个地址同时 ACK，互不干扰。
+
+### SoC 温度（设备热健康，软件读取，无硬件）
+
+i.MX6ULL 芯片内置 TEMPMON 温度传感器，Linux 下直接读，**无需任何外接器件或接线**：
+
+```bash
+cat /sys/class/thermal/thermal_zone0/temp   # 毫摄氏度，47000 = 47°C
+```
+
+备选路径：`/sys/class/hwmon/hwmon0/temp1_input`
+
+定位：测的是**主控芯片自身温度**，不是环境温度，也没有湿度。仅作"设备热健康"用途，与火灾报警无关。不提供湿度，不用于火灾 ALARM 判定。
+
+> **[CLAUDE_CODE_TODO | VERIFY]** SoC 温度路径：thermal_zone0 或 hwmon 路径是否可读
+> - 为何 GPT 给不了：部分内核配置把它放在 `/sys/class/hwmon/` 或未导出，需板端实测。
+> - 期望产物/操作：板端 `cat /sys/class/thermal/thermal_zone0/temp`；若无，试 `/sys/class/hwmon/hwmon0/temp1_input`；记录读到的数值与路径。
+> - 回填位置：CANONICAL 0.7；docs/10；tests/imx6ull。
+> - 验收：能稳定读到一个合理的 SoC 温度（约 40–60°C）。
+
+### PCA9685 通道分配（输出，单一全局 50Hz）
+
+| 通道 | 负载 | 驱动链 | 默认 | 备注 |
+|---|---|---|---|---|
+| CH0 | pan 舵机 | 直接 | — | 已用 |
+| CH1 | tilt 舵机 | 直接 | — | 已用 |
+| CH2 | RGB-R | PCA9685 PWM | — | Task10-E2 已用，推荐演示 |
+| CH3 | RGB-G | PCA9685 PWM | — | Task10-E2 已用，推荐演示 |
+| CH4 | RGB-B | PCA9685 PWM | — | Task10-E2 已用，推荐演示 |
+| CH5 | 继电器 relay | CH5 → relay IN | OFF | 确认 3.3V 可触发；否则加三极管。线圈/JD-VCC 独立 5V，共地。P1 待验 |
+| CH6 | 水泵 pump | CH6 → MOS 栅极 → 水泵 | OFF | 隔离水箱演示；独立 5V；续流。P1 待验 |
+| CH7–15 | 空闲 | — | — | 预留 |
+
+> **[CLAUDE_CODE_TODO | VERIFY]** CH5 继电器默认 OFF 与 3.3V 触发
+> - 期望产物/操作：先空载，确认上电/程序未运行时继电器不吸合；用 PCA9685 CH5 测 3.3V 能否可靠触发该模块，不行则加三极管。
+> - 回填位置：CANONICAL 0.7；docs/03。
+> - 验收：默认 OFF，程序控制可吸合/释放。
+
+> **[CLAUDE_CODE_TODO | VERIFY]** CH6 水泵 MOS 默认 OFF 与隔离水箱安全
+> - 期望产物/操作：先空泵点动确认通断与默认 OFF；再装水闭环测试。
+> - 回填位置：CANONICAL 0.7；docs/03。
+> - 验收：默认 OFF、ALARM 触发喷淋、解除停泵、无漏电无溅水到电路。
+
+> **[CLAUDE_CODE_TODO | MEASURE]** 低压负载供电预算：继电器、水泵、电源温升、压降
+> - 期望产物/操作：万用表测各路电压电流，记录负载启动时是否掉压。
+> - 回填位置：docs/03 第 3.7；docs/12。
+> - 验收：表中写入实测电压/电流/温升。
+
+关键约束：
+- PCA9685 只有一个全局频率（50Hz，服从舵机与当前 RGB 视觉增强）。继电器/水泵**只做开/关（全占空），不做调速 PWM**。
+- PCA9685 输出弱（≤25mA、3.3V），**只出控制信号**；继电器线圈、水泵的电流一律靠 MOS/三极管 + 独立电源，绝不从 i.MX 或 PCA9685 取电。
+- 执行器仍只由 i.MX 本地状态机经 PCA9685 驱动；AI/OPi5/Flask 不参与，`control_allowed=false`。
+- 继电器、水泵等感性负载需要 MOS/三极管驱动和必要续流保护。
+- 水箱演示最后做，水与板卡物理隔离。
+
+### 蜂鸣器说明
+
+蜂鸣器必须继续走 gpio122 直连 GPIO + NPN 三极管驱动，**不经 PCA9685**。这是本地安全报警核心输出，保证 I2C 失效时报警仍可发声。
+
+## 0.8 不可违反的硬约束
 
 1. 本地安全闭环优先；无网络、无摄像头、无 AI 时，i.MX6ULL 仍要能依据本地传感器进入安全状态。
 2. AI / Dashboard / 上层服务只允许返回 `risk_hint`、解释和展示信息，不直接控制蜂鸣器、RGB、继电器、风扇、水泵。

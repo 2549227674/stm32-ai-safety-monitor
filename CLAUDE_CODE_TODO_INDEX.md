@@ -27,6 +27,15 @@
 | `README.md:78` | 填写三机局域网地址与 SSH 用户 | 创建 `config/inventory.example.yaml`，本地复制为不入库的 `inventory.yaml` 后填入 `IMX_IP=<TODO:FILL>`、`OPI5_IP=<TODO:FILL>`、`BACKEND_HOST=<TODO:FILL>`。 | `ssh <USER>@<IMX_IP>` 与 `ssh <USER>@<OPI5_IP>` 均能登录；真实值只保存在本地。 |
 | `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:46` | 填写 i.MX6ULL GPIO chip/line 与有效电平 | 在板端运行 `gpiodetect`、`gpioinfo`，结合原理图/扩展板丝印填写表格。 | 每一路能用 `gpioget` 或测试程序读到高低变化。 |
 
+## VERIFY (P1)
+
+| 文件:行 | 待办 | 期望产物/操作 | 验收 |
+|---|---|---|---|
+| `CANONICAL_DECISIONS.md` 0.7 | I2C 0x40/0x3C 共存 | `i2cdetect -y 0` 同时 ACK，OLED 刷屏不影响舵机/RGB | 两个地址同时 ACK，互不干扰 |
+| `CANONICAL_DECISIONS.md` 0.7 | SoC 温度 thermal/hwmon 路径 | 板端读取 thermal_zone0 或 hwmon 路径，记录温度数值 | 能稳定读到约 40–60°C |
+| `CANONICAL_DECISIONS.md` 0.7 | CH5 继电器默认 OFF 与 3.3V 触发 | 先空载确认默认不吸合；再测 3.3V 触发 | 默认 OFF，程序控制可吸合/释放 |
+| `CANONICAL_DECISIONS.md` 0.7 | CH6 水泵 MOS 默认 OFF 与隔离水箱安全 | 先空泵点动；再装水闭环测试 | 默认 OFF、ALARM 喷淋、解除停泵、无漏电 |
+
 ## VERIFY
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
@@ -55,6 +64,12 @@
 | `docs/09_OrangePi5_RKNN本地AI推理与解释方案.md:25` | 盘点 PC 和 OPi5 上已有 RKNN 仓库与可运行 demo | Claude Code 在本机与 OPi5 上列目录、运行已有 demo，选择最小可接入模型。 | 产出 RKNN 资产清单：模型名、输入尺寸、类别、运行命令、是否通过。 |
 | `docs/09_OrangePi5_RKNN本地AI推理与解释方案.md:85` | 确认 rknn-llm 在 OPi5 上是否能稳定运行 | 优先不纳入 MVP；若有余力，运行最小 demo，记录延迟和内存。 | 能在 OPi5 上生成简短文本，且不影响视觉服务稳定性。 |
 | `edge/opi5-ai/models/README.md:9` | 填写 OPi5 可用 RKNN 模型清单 | 运行模型盘点命令，记录可用 `.rknn`、demo、依赖版本。 | 至少选出一个可用于 Task05 的 demo 模型。 |
+
+## MEASURE (P1)
+
+| 文件:行 | 待办 | 期望产物/操作 | 验收 |
+|---|---|---|---|
+| `CANONICAL_DECISIONS.md` 0.7 | 低压负载供电预算：继电器、水泵、电源温升、压降 | 万用表测各路电压电流，记录负载启动时是否掉压。 | 表中写入实测电压/电流/温升。 |
 
 ## MEASURE
 

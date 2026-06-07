@@ -199,8 +199,54 @@ P0 阶段使用既有字段，不新增、不改库：
 | `actuators.rgb_b` | 蓝色 LED gpio124，0/1 |
 
 以下字段保留给 P1/P2，P0 不使用、不新增：
-- `temp` / `humidity`：温湿度传感器（P1）
 - `keys`：调试按键（P1）
-- `actuators.relay` / `actuators.fan` / `actuators.pump`：继电器/风扇/水泵（P1/P2）
 
 `control_allowed` 仍必须为 `false`。AI/OPi5/Flask 不参与执行器控制。
+
+## 7.11 P1 扩展字段（向后兼容）
+
+P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json` 透出，旧字段兼容。
+
+### sensors 新增字段
+
+```json
+"sensors": {
+  "door": 0, "pir": 1, "flame": 0, "mq2": 0,
+  "soc_temp": 47.3
+}
+```
+
+| 字段 | 类型 | 单位 | 说明 |
+|---|---|---|---|
+| `soc_temp` | float | 摄氏度 | i.MX6ULL SoC 内部温度，不是环境温度 |
+
+- 不加 `humidity`（本轮不做温湿度外设）。
+- 不加环境 `temp`。
+- 通过 `raw_json` 透出，旧后端可忽略。
+
+### actuators 扩展
+
+```json
+"actuators": {
+  "relay": 0,
+  "pump": 0,
+  "buzzer": 0,
+  "rgb_r": 0,
+  "rgb_g": 0,
+  "rgb_b": 0
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `relay` | 0/1 | 继电器，P1 切片逐步真实化 |
+| `pump` | 0/1 | 水泵，P1 切片逐步真实化 |
+| `buzzer` | 0/1 | 蜂鸣器，P0 已有 |
+| `rgb_r/g/b` | 0/1 或 PWM duty | RGB，P0 已有 |
+
+- AI/OPi5/Flask 不允许直接下发控制。
+- `control_allowed=false` 保持不变。
+
+### device_health 扩展（raw_json 透出）
+
+当 `soc_temp` 超过阈值时，`device_health` 字段可从 `NORMAL` 变为 `WARN`，上报 Dashboard/OLED 警告。此字段仅通过 `raw_json` 透出，不强制 DB/schema 改动。
