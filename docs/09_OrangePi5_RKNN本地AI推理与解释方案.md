@@ -18,8 +18,12 @@ PC/WSL 或 Windows Python
 
 模型文件不入库，只在 `edge/opi5-ai/models/README.md` 记录来源、路径、版本和转换命令。
 
+Task05-A 已完成 OPi5 mock 服务 bring-up：OPi5 可 SSH 登录，系统为 RK3588 aarch64 Linux，Python 3.10.12、pip 22.0.2、Flask 2.2.5 可用；mock 服务部署在 `/opt/edge-ai-safety-monitor/opi5-ai/`，`/health` 与 `/api/infer/vision` 可从 WSL curl 访问，返回符合 `docs/07` 的 mock JSON，且 `control_allowed=false`。本事实只代表 mock 服务已通过，不代表真实 RKNN 已接入。
+
+Task05-A 只读盘点到的 OPi5 候选资产包括：`/home/orangepi/rknn-toolkit2-master`、`/home/orangepi/rknn-llm`、`/home/orangepi/phase10/models/yolov8n_phase10`、`/home/orangepi/models/efficientad_models`、`/home/orangepi/models/fastsam_models`、`/home/orangepi/models/qwen3vl_models`。其中发现 `.rknn/.onnx` 等模型样式文件名，但未复制进仓库，也未验证可运行性；真实 demo 验证留到 Task05-B。
+
 > **[CLAUDE_CODE_TODO | INVESTIGATE]** 盘点 PC 和 OPi5 上已有 RKNN 仓库与可运行 demo
-> - 为何 GPT 给不了：沙箱无法访问用户本机的 `rknn-toolkit2-master`、`rknn-llm-main`、OPi5 本地仓库。
+> - 为何 GPT 给不了：沙箱无法访问 PC 侧模型转换环境；OPi5 候选资产虽已只读初筛，但尚未运行 demo 或验证依赖版本。
 > - 期望产物/操作：Claude Code 在本机与 OPi5 上列目录、运行已有 demo，选择最小可接入模型。
 > - 回填位置：docs/09 第 9.2；Task05；edge/opi5-ai/models/README.md
 > - 验收：产出 RKNN 资产清单：模型名、输入尺寸、类别、运行命令、是否通过。

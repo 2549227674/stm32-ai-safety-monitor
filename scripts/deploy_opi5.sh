@@ -11,6 +11,11 @@ OPI5_PORT="$(inv_get opi5 ssh_port)"; OPI5_PORT="${OPI5_PORT:-22}"
 OPI5_DIR="$(inv_require opi5 deploy_dir)"
 OPI5_PASSWORD="$(inv_get opi5 password || true)"
 
+sh_quote() {
+  local value="$1"
+  printf "'%s'" "${value//\'/\'\\\'\'}"
+}
+
 SSH_CMD=(ssh)
 SCP_CMD=(scp)
 if [[ -n "$OPI5_PASSWORD" && "$OPI5_PASSWORD" != *TODO_FILL* && "$OPI5_PASSWORD" != *"<"*">"* ]]; then
@@ -23,7 +28,18 @@ if [[ -n "$OPI5_PASSWORD" && "$OPI5_PASSWORD" != *TODO_FILL* && "$OPI5_PASSWORD"
   SCP_CMD=(sshpass -e scp)
 fi
 
-"${SSH_CMD[@]}" -p "$OPI5_PORT" -o StrictHostKeyChecking=accept-new "$OPI5_USER@$OPI5_HOST" "mkdir -p '$OPI5_DIR'"
+REMOTE_DIR="$(sh_quote "$OPI5_DIR")"
+REMOTE_OWNER="$(sh_quote "$OPI5_USER:$OPI5_USER")"
+if ! "${SSH_CMD[@]}" -p "$OPI5_PORT" -o StrictHostKeyChecking=accept-new "$OPI5_USER@$OPI5_HOST" "mkdir -p $REMOTE_DIR && test -w $REMOTE_DIR" 2>/dev/null; then
+  echo "[deploy] 普通用户无法创建或写入 $OPI5_DIR，尝试使用 sudo 创建并授权给 $OPI5_USER"
+  if [[ -n "$OPI5_PASSWORD" && "$OPI5_PASSWORD" != *TODO_FILL* && "$OPI5_PASSWORD" != *"<"*">"* ]]; then
+    { sleep 0.2; printf '%s\n' "$OPI5_PASSWORD"; } | "${SSH_CMD[@]}" -tt -p "$OPI5_PORT" -o StrictHostKeyChecking=accept-new "$OPI5_USER@$OPI5_HOST" \
+      "stty -echo; sudo -S -p '' -v; rc=\$?; stty echo; echo; [ \$rc -eq 0 ] && sudo mkdir -p $REMOTE_DIR && sudo chown $REMOTE_OWNER $REMOTE_DIR"
+  else
+    "${SSH_CMD[@]}" -tt -p "$OPI5_PORT" -o StrictHostKeyChecking=accept-new "$OPI5_USER@$OPI5_HOST" \
+      "sudo -n mkdir -p $REMOTE_DIR && sudo -n chown $REMOTE_OWNER $REMOTE_DIR"
+  fi
+fi
 # 只同步服务代码与脚本，绝不同步模型权重/图片（见 .gitignore）
 "${SCP_CMD[@]}" -P "$OPI5_PORT" -o StrictHostKeyChecking=accept-new edge/opi5-ai/service/app.py "$OPI5_USER@$OPI5_HOST:$OPI5_DIR/"
 echo "[deploy] 已推送 OPi5 AI 服务 -> $OPI5_USER@$OPI5_HOST:$OPI5_DIR/"
