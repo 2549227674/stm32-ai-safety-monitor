@@ -57,7 +57,7 @@ grep -RIn "\[ASSUMPTION" .
 | 7 | `CLAUDE_CODE_TASK_07_end_edge_vertical_slice.md` | i.MX→OPi5→Flask 完整链路 | Dashboard 显示一条完整端边事件 |
 | 8 | `CLAUDE_CODE_TASK_08_pan_tilt巡检演示.md` | 云台扫描演示 | pan/tilt 角度、图片、AI 结果联动显示 |
 | 9 | `CLAUDE_CODE_TASK_10_imx6ull_sensor_actuator_p0.md` | P0 传感器/执行器真实化 | 门磁/火焰/MQ-2/PIR 真实 GPIO + 蜂鸣器/RGB 真实驱动；断网断 AI 仍本地 ALARM |
-| 10 | `CLAUDE_CODE_TASK_11_imx6ull_p1_oled_relay_fan_soctemp_pump.md` | P1 扩展 | OLED 状态屏 + PCA9685 CH5/CH6 负载 + SoC 温度热健康 + 隔离水箱 |
+| 10 | `CLAUDE_CODE_TASK_11_imx6ull_p1_oled_relay_soctemp_pump.md` | P1 扩展 | OLED 状态屏 + PCA9685 CH5/CH6 负载 + SoC 温度热健康 + 隔离水箱 |
 
 未通过当前 Task，不进入下一 Task。
 
@@ -78,9 +78,9 @@ Task02 已验证本地 `inventory.yaml`、i.MX6ULL SSH、OPi5 SSH smoke test、h
 
 1. AI 不直接控制执行器。`control_allowed` 必须保持 `false`，只允许 i.MX6ULL 本地状态机执行控制。
 2. 不接 220V 强电，不做高压演示。
-3. 舵机与风扇/水泵等负载独立供电，所有低压 GND 星形共地。
+3. 舵机与水泵等负载独立供电，所有低压 GND 星形共地。
 4. MOS 栅极必须有下拉，执行器默认 OFF。
-5. 先空载 PWM，再接 MG90；先 LED/小风扇，再接水泵。
+5. 先空载 PWM，再接 MG90；先 LED，再接水泵。
 6. 先 mock AI 服务，再接真实 RKNN。
 7. 不提交模型、数据库、图片、密钥、真实 IP、WiFi 密码。
 8. 不把 legacy 阶段未验收链路写成“已通过”。

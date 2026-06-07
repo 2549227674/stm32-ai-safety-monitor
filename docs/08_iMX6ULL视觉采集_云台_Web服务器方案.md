@@ -88,7 +88,7 @@ spool/captures/<device_id>/<YYYYMMDD>/<frame_id>.jpg
 |---|---|
 | 当前状态 | state、risk_score、device_id、seq |
 | 传感器 | door/pir/flame/mq2 |
-| 执行器 | relay/fan/pump/buzzer/rgb |
+| 执行器 | relay/pump/buzzer/rgb |
 | 视觉 | 最新图片、pan/tilt、frame_id |
 | AI | objects、faces、risk_hint、summary、latency |
 | 历史事件 | 时间、状态、风险、AI 摘要、图片链接 |

@@ -40,6 +40,14 @@ case "$TARGET_OR_SRC" in
   imx_safetyd)
     SRC="edge/imx6ull-controller/src/imx_safetyd.c"
     OUT_NAME="${2:-imx_safetyd}"
+    EXTRA_CFLAGS="-Iedge/imx6ull-controller/include"
+    EXTRA_SRC="edge/imx6ull-controller/src/bsp_oled_ssd1306.c"
+    ;;
+  oled_test)
+    SRC="edge/imx6ull-controller/src/oled_test.c"
+    OUT_NAME="${2:-oled_test}"
+    EXTRA_CFLAGS="-Iedge/imx6ull-controller/include"
+    EXTRA_SRC="edge/imx6ull-controller/src/bsp_oled_ssd1306.c"
     ;;
   *)
     SRC="$TARGET_OR_SRC"
@@ -61,6 +69,8 @@ echo "[build] CC = ${CC:?SDK 未提供 \$CC}"
 "$CC" --version | head -1
 
 mkdir -p "$OUT_DIR"
+EXTRA_CFLAGS="${EXTRA_CFLAGS:-}"
+EXTRA_SRC="${EXTRA_SRC:-}"
 # shellcheck disable=SC2086
-$CC -Wall -Wextra -Wno-format-truncation -O2 "$SRC" -o "$OUT_DIR/$OUT_NAME"
+$CC -Wall -Wextra -Wno-format-truncation -O2 $EXTRA_CFLAGS $EXTRA_SRC "$SRC" -o "$OUT_DIR/$OUT_NAME"
 echo "[build] 产物: $OUT_DIR/$OUT_NAME"

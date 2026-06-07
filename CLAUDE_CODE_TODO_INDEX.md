@@ -31,7 +31,7 @@
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
 |---|---|---|---|
-| `CANONICAL_DECISIONS.md` 0.7 | I2C 0x40/0x3C 共存 | `i2cdetect -y 0` 同时 ACK，OLED 刷屏不影响舵机/RGB | 两个地址同时 ACK，互不干扰 |
+| `CANONICAL_DECISIONS.md` 0.7 | ~~I2C 0x40/0x3C 共存~~ | 已完成：i2cdetect 同时看到 0x40/0x3C，oled_test 刷屏不影响 PCA9685 RGB | `tests/imx6ull/2026-06-07_p1_oled_status_screen.md` |
 | `CANONICAL_DECISIONS.md` 0.7 | SoC 温度 thermal/hwmon 路径 | 板端读取 thermal_zone0 或 hwmon 路径，记录温度数值 | 能稳定读到约 40–60°C |
 | `CANONICAL_DECISIONS.md` 0.7 | CH5 继电器默认 OFF 与 3.3V 触发 | 先空载确认默认不吸合；再测 3.3V 触发 | 默认 OFF，程序控制可吸合/释放 |
 | `CANONICAL_DECISIONS.md` 0.7 | CH6 水泵 MOS 默认 OFF 与隔离水箱安全 | 先空泵点动；再装水闭环测试 | 默认 OFF、ALARM 喷淋、解除停泵、无漏电 |
@@ -48,7 +48,7 @@
 | `docs/00_README.md:72` | 迁移分支落地后核对 docs/00 链接 | 解压本包到迁移分支后，运行 `find docs -maxdepth 2 -type f` 并核对文件名。 | 所有链接路径存在，无 `docs/15`。 |
 | `docs/02_需求分析与功能优先级_端边协同版.md:26` | 确认 i.MX6ULL 上 USB 摄像头设备节点和格式 | 运行 `v4l2-ctl --list-devices` 和 `--list-formats-ext`，记录 `/dev/videoX` 与 MJPEG/YUYV 支持情况。 | 测试记录中包含设备节点、分辨率、像素格式、抓帧耗时。 |
 | `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:64` | 确认 PCA9685 I2C 地址和电平兼容性 | 运行 `i2cdetect -y <bus>`，用万用表确认 VCC/V+，必要时使用电平转换。 | `i2cdetect` 能看到设备地址，空载 PWM 有逻辑分析仪证据。 |
-| `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:81` | 确认 MOS 模块接线和默认 OFF | 先不接负载，测 GPIO 默认电平；再接 LED/小风扇验证；最后再接泵。 | 上电未运行程序时负载不动作，程序控制后可开关。 |
+| `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:81` | 确认 MOS 模块接线和默认 OFF | 先不接负载，测 GPIO 默认电平；再接 LED 验证；最后再接泵。 | 上电未运行程序时负载不动作，程序控制后可开关。 |
 | `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:96` | 确认 Orange Pi 5 系统、供电和网络状态 | 记录系统版本、Python 版本、rknn 依赖、IP、SSH 可用性；真实 IP 不入库。 | `ssh OPI5_USER@OPI5_IP`、`python3 --version`、`curl /health` 均有记录。 |
 | `docs/08_iMX6ULL视觉采集_云台_Web服务器方案.md:26` | 确认 V4L2 工具和设备节点 | 在板端安装/确认 v4l2 工具，运行 list-devices/list-formats-ext。 | 记录设备节点、格式、分辨率、命令输出。 |
 | `docs/10_设备健康监测与扩展传感器方案.md:22` | 确认 MPU6050 是否接入新硬件清单 | 用户决定是否纳入加分项；若纳入，确认 I2C 总线、地址、电源电压。 | 明确写成“纳入/不纳入最终演示”。 |
@@ -83,6 +83,6 @@
 | `docs/06_状态机与联动机制_Linux实现版.md:52` | 根据实测误报率调整 risk_score 阈值 | 联调阶段记录不同场景 risk_score 与误报，调整加分表。 | 至少记录 NORMAL/WARN/ALARM 三类场景，并说明阈值调整。 |
 | `docs/07_端边HTTP_JSON_Contract.md:149` | 标定 HTTP 超时与端到端延迟 | Task07 中记录 capture/ai/post 总耗时，按结果调整超时。 | 至少 20 次请求统计，并给出最终超时参数。 |
 | `docs/08_iMX6ULL视觉采集_云台_Web服务器方案.md:55` | 实测 MG90 角度、稳定时间和 PWM 脉宽 | 先空载测 PWM，再接单个 MG90，记录 60/90/120 度对应脉宽和稳定时间。 | 云台无明显抖动，抓拍时画面稳定。 |
-| `docs/10_设备健康监测与扩展传感器方案.md:40` | 标定设备健康阈值 | 分别采集静止、风扇正常、水泵/云台动作三类数据。 | 每类至少一段样本，给出 RMS/峰峰值均值。 |
+| `docs/10_设备健康监测与扩展传感器方案.md:40` | 标定设备健康阈值 | 分别采集静止、水泵/云台动作两类数据。 | 每类至少一段样本，给出 RMS/峰峰值均值。 |
 | `docs/12_材料清单与获取计划_新硬件版.md:44` | 补充材料实测供电能力 | 测量空载/负载电压，记录舵机动作和 OPi5 推理时是否掉压。 | 材料表中写入实测电压、电流和是否可用于最终演示。 |
 | `docs/13_实训报告与答辩演示方案_迁移版.md:68` | 补充最终截图和录屏路径 | 在最终联调时保存截图到 `assets/photos/` 或 `project/report/images/`，录屏放本地不入库或压缩后提交。 | 每张截图有说明，PPT 可直接引用。 |

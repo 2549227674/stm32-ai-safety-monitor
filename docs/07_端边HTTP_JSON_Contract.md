@@ -110,7 +110,7 @@ Content-Type：`multipart/form-data`
   "risk_score": 5,
   "need_snap": true,
   "sensors": {"door": 0, "pir": 1, "flame": 0, "mq2": 0},
-  "actuators": {"relay": 0, "fan": 0, "pump": 0, "buzzer": 0, "rgb_r": 0, "rgb_g": 0, "rgb_b": 1},
+  "actuators": {"relay": 0, "pump": 0, "buzzer": 0, "rgb_r": 0, "rgb_g": 0, "rgb_b": 1},
   "vision": {
     "frame_id": 42,
     "image_url": "/uploads/20260604_labbox_001_xxxx.jpg",

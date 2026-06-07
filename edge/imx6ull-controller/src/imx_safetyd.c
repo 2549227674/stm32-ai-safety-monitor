@@ -13,6 +13,11 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <linux/i2c-dev.h>
+#include <sys/ioctl.h>
+#include <fcntl.h>
+
+#include "bsp_oled_ssd1306.h"
 
 #define PROGRAM_NAME "imx_safetyd_c"
 #define CONTRACT_VERSION "1.0"
@@ -43,6 +48,9 @@
 #define DEFAULT_BASE_DIR "/opt/edge-ai-safety-monitor"
 #define DEFAULT_INTERVAL_SEC 2
 #define DEFAULT_MODE "once"
+#define DEFAULT_OLED_ENABLE 0
+#define DEFAULT_OLED_BUS "/dev/i2c-0"
+#define DEFAULT_OLED_ADDR 0x3C
 #define DEFAULT_BACKEND_URL "http://127.0.0.1:5000"
 #define DEFAULT_OPI5_URL "http://127.0.0.1:8080"
 #define INITIAL_SEQ 9000
@@ -79,6 +87,9 @@ typedef struct {
     int force_verify;
     int interval_sec;
     char mode[16];
+    int oled_enable;
+    char oled_bus[64];
+    int oled_addr;
 } AppConfig;
 
 typedef struct {
@@ -235,6 +246,9 @@ static void usage(const char *prog) {
         "  --post-normal 0|1           default/env POST_NORMAL\n"
         "  --force-verify 0|1          default/env FORCE_VERIFY\n"
         "  --interval-sec N            default/env INTERVAL_SEC\n"
+        "  --oled-enable 0|1           default/env OLED_ENABLE\n"
+        "  --oled-bus PATH             default/env OLED_BUS\n"
+        "  --oled-addr HEX             default/env OLED_ADDR\n"
         "  --help\n"
         "\n"
         "Notes:\n"
@@ -315,6 +329,9 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->post_normal = set_from_env_int("POST_NORMAL", 0);
     cfg->force_verify = set_from_env_int("FORCE_VERIFY", 0);
     cfg->interval_sec = set_from_env_int("INTERVAL_SEC", DEFAULT_INTERVAL_SEC);
+    cfg->oled_enable = set_from_env_int("OLED_ENABLE", DEFAULT_OLED_ENABLE);
+    set_from_env_string(cfg->oled_bus, sizeof(cfg->oled_bus), "OLED_BUS", DEFAULT_OLED_BUS);
+    cfg->oled_addr = set_from_env_int("OLED_ADDR", DEFAULT_OLED_ADDR);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -433,6 +450,15 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
                 fprintf(stderr, "--interval-sec requires integer\n");
                 return -1;
             }
+        } else if (strcmp(argv[i], "--oled-enable") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->oled_enable) != 0) {
+                fprintf(stderr, "--oled-enable requires 0|1\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--oled-bus") == 0 && i + 1 < argc) {
+            copy_string(cfg->oled_bus, sizeof(cfg->oled_bus), argv[++i]);
+        } else if (strcmp(argv[i], "--oled-addr") == 0 && i + 1 < argc) {
+            cfg->oled_addr = (int)strtol(argv[++i], NULL, 0);
         } else {
             fprintf(stderr, "unknown or incomplete argument: %s\n", argv[i]);
             usage(argv[0]);
@@ -743,6 +769,54 @@ static void all_off(const AppConfig *cfg) {
         write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, 0);
     }
     log_msg("[actuators] all_off (backend=%s)", cfg->rgb_backend);
+}
+
+static volatile int g_oled_fd = -1;
+
+static int oled_open(const AppConfig *cfg) {
+    if (!cfg->oled_enable) return -1;
+    int fd = open(cfg->oled_bus, O_RDWR);
+    if (fd < 0) {
+        log_msg("[oled] open %s failed: %s", cfg->oled_bus, strerror(errno));
+        return -1;
+    }
+    if (ioctl(fd, I2C_SLAVE, cfg->oled_addr) < 0) {
+        log_msg("[oled] set addr 0x%02X failed: %s", cfg->oled_addr, strerror(errno));
+        close(fd);
+        return -1;
+    }
+    if (oled_init(fd) != 0) {
+        log_msg("[oled] init failed");
+        close(fd);
+        return -1;
+    }
+    if (oled_clear(fd) != 0) {
+        log_msg("[oled] clear failed");
+        close(fd);
+        return -1;
+    }
+    log_msg("[oled] initialized on %s addr=0x%02X", cfg->oled_bus, cfg->oled_addr);
+    return fd;
+}
+
+static void oled_refresh(int fd, const AppConfig *cfg, const SensorState *sensors, const EventContext *ctx) {
+    (void)cfg; /* reserved for future soc_temp display */
+    if (fd < 0) return;
+
+    char line0[32], line1[32], line2[32], line3[32];
+    snprintf(line0, sizeof(line0), "State: %s", ctx->state[0] ? ctx->state : "N/A");
+    snprintf(line1, sizeof(line1), "Risk: %d", ctx->risk_score);
+    snprintf(line2, sizeof(line2), "S:P%d F%d M%d", sensors->pir, sensors->flame, sensors->mq2);
+    snprintf(line3, sizeof(line3), "B:%d R:%d G:%d B:%d",
+             (ctx->state[0] == 'A' || ctx->state[0] == 'F') ? 1 : 0,
+             (ctx->state[0] == 'A' || ctx->state[0] == 'F') ? 1 : 0,
+             (ctx->state[0] == 'N') ? 1 : 0,
+             (ctx->state[0] == 'V') ? 1 : 0);
+
+    oled_draw_text(fd, 0, 0, line0);
+    oled_draw_text(fd, 0, 1, line1);
+    oled_draw_text(fd, 0, 2, line2);
+    oled_draw_text(fd, 0, 3, line3);
 }
 
 static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *ctx) {
@@ -1112,7 +1186,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  \"risk_score\": %d,\n"
             "  \"need_snap\": %s,\n"
             "  \"sensors\": {\"door\": %d, \"pir\": %d, \"flame\": %d, \"mq2\": %d},\n"
-            "  \"actuators\": {\"relay\": 0, \"fan\": 0, \"pump\": 0, \"buzzer\": %d, \"rgb_r\": %d, \"rgb_g\": %d, \"rgb_b\": %d},\n"
+            "  \"actuators\": {\"relay\": 0, \"pump\": 0, \"buzzer\": %d, \"rgb_r\": %d, \"rgb_g\": %d, \"rgb_b\": %d},\n"
             "  \"vision\": {\n"
             "    \"frame_id\": %d,\n"
             "    \"image_url\": null,\n"
@@ -1235,6 +1309,9 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
         ensure_gpio_export_out(cfg->gpio_rgb_b);
     }
     apply_actuators_by_state(cfg, ctx.state);
+
+    /* Refresh OLED display (non-fatal) */
+    oled_refresh(g_oled_fd, cfg, &sensors, &ctx);
 
     if (strcmp(ctx.state, "NORMAL") == 0 && cfg->post_normal == 0) {
         copy_string(ctx.backend_status, sizeof(ctx.backend_status), "skipped");
@@ -1395,10 +1472,14 @@ int main(int argc, char **argv) {
     }
     all_off(&cfg);
 
+    /* Open OLED if enabled (non-fatal on failure) */
+    g_oled_fd = oled_open(&cfg);
+
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    log_msg("[start] mode=%s device_id=%s base_dir=%s", cfg.mode, cfg.device_id, cfg.base_dir);
+    log_msg("[start] mode=%s device_id=%s base_dir=%s oled=%s", cfg.mode, cfg.device_id, cfg.base_dir,
+            cfg.oled_enable ? "enabled" : "disabled");
     int rc = 0;
     if (strcmp(cfg.mode, "flush") == 0) {
         rc = flush_spool(&cfg, &paths);
@@ -1408,5 +1489,9 @@ int main(int argc, char **argv) {
         rc = run_once(&cfg, &paths);
     }
     all_off(&cfg);
+    if (g_oled_fd >= 0) {
+        close(g_oled_fd);
+        g_oled_fd = -1;
+    }
     return rc;
 }

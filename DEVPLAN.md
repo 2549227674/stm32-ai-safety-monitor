@@ -88,7 +88,7 @@ Task07-D 为工程化增强项，不作为当前 MVP 验收阻塞项。当前 MV
   - 收益：结构更清晰，便于报告展示和后续维护。
   - 风险：拆分可能引入集成问题，必须保持 Task07-C 已通过行为不退化。
 
-Task11 P1 扩展：文档已入库，待硬件切片验证。P1 全部走 I2C 总线 + PCA9685 空闲通道 + SoC 内部温度，不占用 P0 的直连 GPIO。切片顺序：11-A OLED → 11-B relay → 11-C soc_temp → 11-D pump water tank。
+Task11 P1 扩展：11-A OLED 已通过（i2cdetect 0x3C，oled_test 刷屏，imx_safetyd OLED_ENABLE=1 loop 刷新 state/risk_score/sensors/actuators）。下一步 11-B relay。P1 全部走 I2C 总线 + PCA9685 空闲通道 + SoC 内部温度，不占用 P0 的直连 GPIO。切片顺序：11-A OLED ✓ → 11-B relay → 11-C soc_temp → 11-D pump water tank。
 
 Task10 P0 传感器/执行器真实化：待执行。门磁/火焰/MQ-2/PIR 四路输入读真实 GPIO，蜂鸣器/RGB 两路输出真实驱动。按 10-A→10-E 垂直切片逐个验证，不改 OPi5/AI，不改 Flask schema。核心价值：把 door/flame/mq2 固定 0、执行器仅事件字段的 caveat 逐步替换为真实本地安全闭环证据。引脚以 `CANONICAL_DECISIONS.md` 0.6 为准。
 
