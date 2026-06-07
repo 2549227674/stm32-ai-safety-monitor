@@ -197,6 +197,17 @@ Task10-E 已验证蜂鸣器与 RGB 输出真实驱动：
 - `once` 模式下 NORMAL 场景完成太快（<400ms），需用 loop 模式观察灯色
 - 证据见 `tests/imx6ull/2026-06-07_p0_buzzer_rgb_outputs.md`
 
+### 6.12.5 Task10-E2 RGB PCA9685 PWM 视觉增强（已通过）
+
+Task10-E2 将 RGB 状态灯从 J5 GPIO 增强为 PCA9685 CH2/CH3/CH4 PWM 输出：
+- PCA9685 CH2=RGB-R, CH3=RGB-G, CH4=RGB-B（CH0/CH1 舵机保持不动）
+- 蜂鸣器仍走 gpio122 active low，不经 PCA9685
+- 新增 `pca9685_set_pwm` 工具，支持单通道 duty 设置，自动唤醒 PCA9685
+- `RGB_BACKEND=gpio|pca9685` 可选，演示推荐 pca9685（亮度更高）
+- PCA9685 全局频率 50Hz 不变（不影响舵机）
+- RGB PCA9685 是视觉增强，不承担安全报警核心；蜂鸣器仍是 ALARM 主输出
+- 证据见 `tests/imx6ull/2026-06-07_p0_rgb_pca9685_pwm.md`
+
 ## 6.12 Task07-D 后续原生化增强（可选，不阻塞 MVP）
 
 Task07-C 当前已实现 C 版 imx_safetyd，支持 once/loop/flush、真实 gpio117 空闲读取、NORMAL/VERIFY、OPi5 offline fallback、Flask spool/flush。

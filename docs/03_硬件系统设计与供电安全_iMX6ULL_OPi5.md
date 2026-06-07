@@ -71,9 +71,11 @@ P0 输出不依赖 MOS 模块（MOS 仍为 P1 扩展项）：
 | 负载 | 控制 line | 驱动方式 | 有效电平 | 默认态 | 状态 |
 |---|---|---|---|---|---|
 | buzzer | gpio122 (J5 D5) | NPN 三极管（S8050）+ 基极 1k | **active low**（0=响） | OFF（gpio=1） | 已验证 |
-| rgb_r | gpio121 (J5 D4) | 各串 220–330Ω 限流 | active high（1=亮） | OFF（gpio=0） | 已验证（代码逻辑，红灯模块待查） |
-| rgb_g | gpio123 (J5 D6) | 各串 220–330Ω 限流 | active high（1=亮） | OFF（gpio=0） | 已验证 |
-| rgb_b | gpio124 (J5 D7) | 各串 220–330Ω 限流 | active high（1=亮） | OFF（gpio=0） | 已验证 |
+| rgb_r | PCA9685 CH2 (推荐) / gpio121 (fallback) | PCA9685 PWM 或 GPIO + 限流 | 共阴高有效 | OFF（duty=0） | Task10-E2 PCA9685 已验证 |
+| rgb_g | PCA9685 CH3 (推荐) / gpio123 (fallback) | PCA9685 PWM 或 GPIO + 限流 | 共阴高有效 | OFF（duty=0） | Task10-E2 PCA9685 已验证 |
+| rgb_b | PCA9685 CH4 (推荐) / gpio124 (fallback) | PCA9685 PWM 或 GPIO + 限流 | 共阴高有效 | OFF（duty=0） | Task10-E2 PCA9685 已验证 |
+
+> **说明**：RGB PCA9685 是视觉增强（亮度更高），蜂鸣器仍是安全报警核心输出。PCA9685 CH0/CH1 专供舵机，CH2/CH3/CH4 用于 RGB。`RGB_BACKEND` 配置可选 `gpio`（Task10-E）或 `pca9685`（Task10-E2，推荐演示）。
 
 > **说明**：蜂鸣器不是分压问题，而是驱动问题——GPIO 只控制 NPN/MOS 三极管基极，不能直接带蜂鸣器。RGB 不是分压问题，而是限流问题——每路 LED 需要 220–330Ω 限流，或确认模块已有可靠限流。继电器/风扇/水泵不属于 Task10，本轮不写成已接入。
 

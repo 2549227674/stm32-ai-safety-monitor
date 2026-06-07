@@ -31,6 +31,14 @@
 #define DEFAULT_GPIO_RGB_G_ACTIVE_HIGH 1
 #define DEFAULT_GPIO_RGB_B 124
 #define DEFAULT_GPIO_RGB_B_ACTIVE_HIGH 1
+#define DEFAULT_RGB_BACKEND "gpio"
+#define DEFAULT_PCA9685_BUS "/dev/i2c-0"
+#define DEFAULT_PCA9685_ADDR 0x40
+#define DEFAULT_PCA9685_RGB_R_CH 2
+#define DEFAULT_PCA9685_RGB_G_CH 3
+#define DEFAULT_PCA9685_RGB_B_CH 4
+#define DEFAULT_PCA9685_RGB_ON_DUTY 4095
+#define DEFAULT_PCA9685_RGB_OFF_DUTY 0
 #define DEFAULT_CAPTURE_DEVICE "/dev/video1"
 #define DEFAULT_BASE_DIR "/opt/edge-ai-safety-monitor"
 #define DEFAULT_INTERVAL_SEC 2
@@ -57,6 +65,14 @@ typedef struct {
     int gpio_rgb_g_active_high;
     int gpio_rgb_b;
     int gpio_rgb_b_active_high;
+    char rgb_backend[16];
+    char pca9685_bus[64];
+    int pca9685_addr;
+    int pca9685_rgb_r_ch;
+    int pca9685_rgb_g_ch;
+    int pca9685_rgb_b_ch;
+    int pca9685_rgb_on_duty;
+    int pca9685_rgb_off_duty;
     char capture_device[64];
     char base_dir[256];
     int post_normal;
@@ -117,6 +133,8 @@ static AppConfig g_cfg;
 static volatile sig_atomic_t g_cfg_ready = 0;
 
 static void all_off(const AppConfig *cfg);
+static void shell_quote(const char *src, char *dst, size_t size);
+static int run_shell_command(const char *cmd);
 
 static void handle_signal(int signum) {
     (void)signum;
@@ -204,6 +222,14 @@ static void usage(const char *prog) {
         "  --gpio-rgb-g-active-high 0|1 default/env GPIO_RGB_G_ACTIVE_HIGH\n"
         "  --gpio-rgb-b N              default/env GPIO_RGB_B\n"
         "  --gpio-rgb-b-active-high 0|1 default/env GPIO_RGB_B_ACTIVE_HIGH\n"
+        "  --rgb-backend gpio|pca9685  default/env RGB_BACKEND\n"
+        "  --pca9685-bus PATH          default/env PCA9685_BUS\n"
+        "  --pca9685-addr HEX          default/env PCA9685_ADDR\n"
+        "  --pca9685-rgb-r-ch N        default/env PCA9685_RGB_R_CH\n"
+        "  --pca9685-rgb-g-ch N        default/env PCA9685_RGB_G_CH\n"
+        "  --pca9685-rgb-b-ch N        default/env PCA9685_RGB_B_CH\n"
+        "  --pca9685-rgb-on-duty N     default/env PCA9685_RGB_ON_DUTY\n"
+        "  --pca9685-rgb-off-duty N    default/env PCA9685_RGB_OFF_DUTY\n"
         "  --capture-device PATH       default/env CAPTURE_DEVICE\n"
         "  --base-dir PATH             default/env BASE_DIR\n"
         "  --post-normal 0|1           default/env POST_NORMAL\n"
@@ -278,6 +304,14 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->gpio_rgb_g_active_high = set_from_env_int("GPIO_RGB_G_ACTIVE_HIGH", DEFAULT_GPIO_RGB_G_ACTIVE_HIGH);
     cfg->gpio_rgb_b = set_from_env_int("GPIO_RGB_B", DEFAULT_GPIO_RGB_B);
     cfg->gpio_rgb_b_active_high = set_from_env_int("GPIO_RGB_B_ACTIVE_HIGH", DEFAULT_GPIO_RGB_B_ACTIVE_HIGH);
+    set_from_env_string(cfg->rgb_backend, sizeof(cfg->rgb_backend), "RGB_BACKEND", DEFAULT_RGB_BACKEND);
+    set_from_env_string(cfg->pca9685_bus, sizeof(cfg->pca9685_bus), "PCA9685_BUS", DEFAULT_PCA9685_BUS);
+    cfg->pca9685_addr = set_from_env_int("PCA9685_ADDR", DEFAULT_PCA9685_ADDR);
+    cfg->pca9685_rgb_r_ch = set_from_env_int("PCA9685_RGB_R_CH", DEFAULT_PCA9685_RGB_R_CH);
+    cfg->pca9685_rgb_g_ch = set_from_env_int("PCA9685_RGB_G_CH", DEFAULT_PCA9685_RGB_G_CH);
+    cfg->pca9685_rgb_b_ch = set_from_env_int("PCA9685_RGB_B_CH", DEFAULT_PCA9685_RGB_B_CH);
+    cfg->pca9685_rgb_on_duty = set_from_env_int("PCA9685_RGB_ON_DUTY", DEFAULT_PCA9685_RGB_ON_DUTY);
+    cfg->pca9685_rgb_off_duty = set_from_env_int("PCA9685_RGB_OFF_DUTY", DEFAULT_PCA9685_RGB_OFF_DUTY);
     cfg->post_normal = set_from_env_int("POST_NORMAL", 0);
     cfg->force_verify = set_from_env_int("FORCE_VERIFY", 0);
     cfg->interval_sec = set_from_env_int("INTERVAL_SEC", DEFAULT_INTERVAL_SEC);
@@ -364,6 +398,22 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
                 fprintf(stderr, "--gpio-rgb-b-active-high requires 0|1\n");
                 return -1;
             }
+        } else if (strcmp(argv[i], "--rgb-backend") == 0 && i + 1 < argc) {
+            copy_string(cfg->rgb_backend, sizeof(cfg->rgb_backend), argv[++i]);
+        } else if (strcmp(argv[i], "--pca9685-bus") == 0 && i + 1 < argc) {
+            copy_string(cfg->pca9685_bus, sizeof(cfg->pca9685_bus), argv[++i]);
+        } else if (strcmp(argv[i], "--pca9685-addr") == 0 && i + 1 < argc) {
+            cfg->pca9685_addr = (int)strtol(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--pca9685-rgb-r-ch") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_rgb_r_ch) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--pca9685-rgb-g-ch") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_rgb_g_ch) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--pca9685-rgb-b-ch") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_rgb_b_ch) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--pca9685-rgb-on-duty") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_rgb_on_duty) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--pca9685-rgb-off-duty") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_rgb_off_duty) != 0) { return -1; }
         } else if (strcmp(argv[i], "--capture-device") == 0 && i + 1 < argc) {
             copy_string(cfg->capture_device, sizeof(cfg->capture_device), argv[++i]);
         } else if (strcmp(argv[i], "--base-dir") == 0 && i + 1 < argc) {
@@ -392,6 +442,10 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
 
     if (strcmp(cfg->mode, "once") != 0 && strcmp(cfg->mode, "loop") != 0 && strcmp(cfg->mode, "flush") != 0) {
         fprintf(stderr, "--mode must be once, loop, or flush\n");
+        return -1;
+    }
+    if (strcmp(cfg->rgb_backend, "gpio") != 0 && strcmp(cfg->rgb_backend, "pca9685") != 0) {
+        fprintf(stderr, "--rgb-backend must be gpio or pca9685\n");
         return -1;
     }
     if (cfg->gpio_pir < 0 || (cfg->gpio_active_high != 0 && cfg->gpio_active_high != 1) ||
@@ -618,8 +672,32 @@ static void write_gpio_output(int gpio, int active_high, int desired_on) {
     }
 }
 
+static void pca9685_set_rgb(const AppConfig *cfg, int r_on, int g_on, int b_on) {
+    char cmd[768];
+    int r_duty = r_on ? cfg->pca9685_rgb_on_duty : cfg->pca9685_rgb_off_duty;
+    int g_duty = g_on ? cfg->pca9685_rgb_on_duty : cfg->pca9685_rgb_off_duty;
+    int b_duty = b_on ? cfg->pca9685_rgb_on_duty : cfg->pca9685_rgb_off_duty;
+    char tool_path[512];
+    char q_bus[80], q_tool[600];
+    snprintf(tool_path, sizeof(tool_path), "%s/pca9685_set_pwm", cfg->base_dir);
+    shell_quote(cfg->pca9685_bus, q_bus, sizeof(q_bus));
+    shell_quote(tool_path, q_tool, sizeof(q_tool));
+
+    snprintf(cmd, sizeof(cmd),
+             "%s --bus %s --addr 0x%02x --channel %d --duty %d && "
+             "%s --bus %s --addr 0x%02x --channel %d --duty %d && "
+             "%s --bus %s --addr 0x%02x --channel %d --duty %d",
+             q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_rgb_r_ch, r_duty,
+             q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_rgb_g_ch, g_duty,
+             q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_rgb_b_ch, b_duty);
+    if (run_shell_command(cmd) != 0) {
+        log_msg("[pca9685] WARNING: RGB PWM write failed");
+    }
+}
+
 static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
     int buzzer_on = 0, r_on = 0, g_on = 0, b_on = 0;
+    int use_pca = (strcmp(cfg->rgb_backend, "pca9685") == 0);
 
     if (strcmp(state, "NORMAL") == 0) {
         g_on = 1;
@@ -634,20 +712,37 @@ static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
         buzzer_on = 1;
     }
 
-    write_gpio_output(cfg->gpio_rgb_r, cfg->gpio_rgb_r_active_high, r_on);
+    /* Buzzer always on GPIO */
     write_gpio_output(cfg->gpio_buzzer, cfg->gpio_buzzer_active_high, buzzer_on);
-    write_gpio_output(cfg->gpio_rgb_g, cfg->gpio_rgb_g_active_high, g_on);
-    write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, b_on);
 
-    log_msg("[actuators] state=%s buzzer=%d R=%d G=%d B=%d", state, buzzer_on, r_on, g_on, b_on);
+    /* RGB: PCA9685 or GPIO */
+    if (use_pca) {
+        pca9685_set_rgb(cfg, r_on, g_on, b_on);
+    } else {
+        write_gpio_output(cfg->gpio_rgb_r, cfg->gpio_rgb_r_active_high, r_on);
+        write_gpio_output(cfg->gpio_rgb_g, cfg->gpio_rgb_g_active_high, g_on);
+        write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, b_on);
+    }
+
+    log_msg("[actuators] state=%s buzzer=%d R=%d G=%d B=%d rgb_backend=%s",
+            state, buzzer_on, r_on, g_on, b_on, cfg->rgb_backend);
 }
 
 static void all_off(const AppConfig *cfg) {
-    write_gpio_output(cfg->gpio_rgb_r, cfg->gpio_rgb_r_active_high, 0);
+    int use_pca = (strcmp(cfg->rgb_backend, "pca9685") == 0);
+
+    /* Buzzer always on GPIO */
     write_gpio_output(cfg->gpio_buzzer, cfg->gpio_buzzer_active_high, 0);
-    write_gpio_output(cfg->gpio_rgb_g, cfg->gpio_rgb_g_active_high, 0);
-    write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, 0);
-    log_msg("[actuators] all_off");
+
+    /* RGB off */
+    if (use_pca) {
+        pca9685_set_rgb(cfg, 0, 0, 0);
+    } else {
+        write_gpio_output(cfg->gpio_rgb_r, cfg->gpio_rgb_r_active_high, 0);
+        write_gpio_output(cfg->gpio_rgb_g, cfg->gpio_rgb_g_active_high, 0);
+        write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, 0);
+    }
+    log_msg("[actuators] all_off (backend=%s)", cfg->rgb_backend);
 }
 
 static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *ctx) {
@@ -1133,10 +1228,12 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
             ctx.state, ctx.risk_score_before_ai, ctx.need_snap ? "true" : "false");
 
     /* Initialize output GPIOs and apply actuators */
-    ensure_gpio_export_out(cfg->gpio_rgb_r);
     ensure_gpio_export_out(cfg->gpio_buzzer);
-    ensure_gpio_export_out(cfg->gpio_rgb_g);
-    ensure_gpio_export_out(cfg->gpio_rgb_b);
+    if (strcmp(cfg->rgb_backend, "gpio") == 0) {
+        ensure_gpio_export_out(cfg->gpio_rgb_r);
+        ensure_gpio_export_out(cfg->gpio_rgb_g);
+        ensure_gpio_export_out(cfg->gpio_rgb_b);
+    }
     apply_actuators_by_state(cfg, ctx.state);
 
     if (strcmp(ctx.state, "NORMAL") == 0 && cfg->post_normal == 0) {
@@ -1290,10 +1387,12 @@ int main(int argc, char **argv) {
     g_cfg_ready = 1;
 
     /* Initialize output GPIOs to OFF at startup */
-    ensure_gpio_export_out(cfg.gpio_rgb_r);
     ensure_gpio_export_out(cfg.gpio_buzzer);
-    ensure_gpio_export_out(cfg.gpio_rgb_g);
-    ensure_gpio_export_out(cfg.gpio_rgb_b);
+    if (strcmp(cfg.rgb_backend, "gpio") == 0) {
+        ensure_gpio_export_out(cfg.gpio_rgb_r);
+        ensure_gpio_export_out(cfg.gpio_rgb_g);
+        ensure_gpio_export_out(cfg.gpio_rgb_b);
+    }
     all_off(&cfg);
 
     signal(SIGINT, handle_signal);

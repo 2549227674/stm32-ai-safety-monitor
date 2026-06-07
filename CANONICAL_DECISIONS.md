@@ -187,10 +187,10 @@ P0 范围：门磁、PIR、火焰、MQ-2 四路本地安全输入 + 蜂鸣器、
 | 门磁 door | 输入 | D1 | CSI_DATA1 | gpio118 | 本轮跳过 | 干簧管/磁簧，passive 触点，3.3V 上拉到 GPIO，**无需分压**；无外部 10k 时裸读不稳定，待补上拉后重测 |
 | 火焰 flame DO | 输入 | D2 | CSI_DATA2 | gpio119 | 已验证 | **3.3V 供电**，DO 高有效（raw=1 有火焰），裸读稳定；flame=1 可触发本地 ALARM；传感器灵敏度电位器需后续调整 |
 | MQ-2 DO | 输入 | D3 | CSI_DATA3 | gpio120 | 已验证（课设短时） | 本轮 5V 供电 + DO 直连，mq2=1 可触发本地 ALARM；**长期建议分压/电平转换** |
-| RGB-R | 输出 | D4 | CSI_DATA4 | gpio121 | 已验证（代码逻辑） | active high（1=亮）；红灯模块/接线待查，代码 gpio121=1 正确 |
-| 蜂鸣器 buzzer | 输出 | D5 | CSI_DATA5 | gpio122 | 已验证 | **active low**（0=响，1=不响）；直连 GPIO + NPN 三极管驱动 |
-| RGB-G | 输出 | D6 | CSI_DATA6 | gpio123 | 已验证 | active high（1=亮）；绿灯正常 |
-| RGB-B | 输出 | D7 | CSI_DATA7 | gpio124 | 已验证 | active high（1=亮）；蓝灯正常 |
+| RGB-R | 输出 | D4/I2C | CSI_DATA4/PCA9685 | gpio121 / PCA9685 CH2 | 已验证 | Task10-E GPIO fallback；Task10-E2 PCA9685 CH2 推荐演示 |
+| 蜂鸣器 buzzer | 输出 | D5 | CSI_DATA5 | gpio122 | 已验证 | **active low**（0=响，1=不响）；直连 GPIO + NPN 三极管驱动；不经 PCA9685 |
+| RGB-G | 输出 | D6/I2C | CSI_DATA6/PCA9685 | gpio123 / PCA9685 CH3 | 已验证 | Task10-E GPIO fallback；Task10-E2 PCA9685 CH3 推荐演示 |
+| RGB-B | 输出 | D7/I2C | CSI_DATA7/PCA9685 | gpio124 / PCA9685 CH4 | 已验证 | Task10-E GPIO fallback；Task10-E2 PCA9685 CH4 推荐演示 |
 | 舵机 pan/tilt | 输出 | I2C(7/8) | I2C1 | /dev/i2c-0 0x40 CH0/CH1 | 已用 | 保持现状，P0 不动 |
 
 > **说明**：P0 模块都在外置面包板/洞洞板上；"直连 GPIO"表示信号线从外置面包板/洞洞板经 J5 接到 i.MX GPIO，不表示模块插在 i.MX 核心板上。P0 本地安全闭环不依赖 I2C / OPi5 / Flask / 网络。
