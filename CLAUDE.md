@@ -20,7 +20,7 @@
 | 工作目录 | WSL 原生目录 `/home/qbz415/SafetyMonitor`；不要再使用 `/mnt/c/program1/SafetyMonitor` 开发 |
 | 当前分支 | `migration/imx6ull-opi5-edge-ai` |
 | 最新迁移提交 | `3dfd7a7 task07-c2: fix initd restart flow`；Task07-C2 已完成 |
-| 总体阶段 | Task11-A OLED 已通过；待执行 11-B 继电器 |
+| 总体阶段 | Task11-A/11-B 已通过；待执行 11-C SoC 温度 |
 | 新主线 | i.MX6ULL Pro + Orange Pi 5 + Flask |
 | 旧主线 | STM32 + ESP32-CAM 归档为 legacy |
 | 当前执行器 | 本地 Codex / Claude Code |

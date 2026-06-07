@@ -51,6 +51,9 @@
 #define DEFAULT_OLED_ENABLE 0
 #define DEFAULT_OLED_BUS "/dev/i2c-0"
 #define DEFAULT_OLED_ADDR 0x3C
+#define DEFAULT_RELAY_ENABLE 0
+#define DEFAULT_PCA9685_RELAY_CH 5
+#define DEFAULT_PCA9685_RELAY_ACTIVE_HIGH 1
 #define DEFAULT_BACKEND_URL "http://127.0.0.1:5000"
 #define DEFAULT_OPI5_URL "http://127.0.0.1:8080"
 #define INITIAL_SEQ 9000
@@ -90,6 +93,9 @@ typedef struct {
     int oled_enable;
     char oled_bus[64];
     int oled_addr;
+    int relay_enable;
+    int pca9685_relay_ch;
+    int pca9685_relay_active_high;
 } AppConfig;
 
 typedef struct {
@@ -249,6 +255,9 @@ static void usage(const char *prog) {
         "  --oled-enable 0|1           default/env OLED_ENABLE\n"
         "  --oled-bus PATH             default/env OLED_BUS\n"
         "  --oled-addr HEX             default/env OLED_ADDR\n"
+        "  --relay-enable 0|1          default/env RELAY_ENABLE\n"
+        "  --pca9685-relay-ch N        default/env PCA9685_RELAY_CH\n"
+        "  --pca9685-relay-active-high 0|1 default/env PCA9685_RELAY_ACTIVE_HIGH\n"
         "  --help\n"
         "\n"
         "Notes:\n"
@@ -332,6 +341,9 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->oled_enable = set_from_env_int("OLED_ENABLE", DEFAULT_OLED_ENABLE);
     set_from_env_string(cfg->oled_bus, sizeof(cfg->oled_bus), "OLED_BUS", DEFAULT_OLED_BUS);
     cfg->oled_addr = set_from_env_int("OLED_ADDR", DEFAULT_OLED_ADDR);
+    cfg->relay_enable = set_from_env_int("RELAY_ENABLE", DEFAULT_RELAY_ENABLE);
+    cfg->pca9685_relay_ch = set_from_env_int("PCA9685_RELAY_CH", DEFAULT_PCA9685_RELAY_CH);
+    cfg->pca9685_relay_active_high = set_from_env_int("PCA9685_RELAY_ACTIVE_HIGH", DEFAULT_PCA9685_RELAY_ACTIVE_HIGH);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -459,6 +471,15 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
             copy_string(cfg->oled_bus, sizeof(cfg->oled_bus), argv[++i]);
         } else if (strcmp(argv[i], "--oled-addr") == 0 && i + 1 < argc) {
             cfg->oled_addr = (int)strtol(argv[++i], NULL, 0);
+        } else if (strcmp(argv[i], "--relay-enable") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->relay_enable) != 0) {
+                fprintf(stderr, "--relay-enable requires 0|1\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--pca9685-relay-ch") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_relay_ch) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--pca9685-relay-active-high") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_relay_active_high) != 0) { return -1; }
         } else {
             fprintf(stderr, "unknown or incomplete argument: %s\n", argv[i]);
             usage(argv[0]);
@@ -721,8 +742,27 @@ static void pca9685_set_rgb(const AppConfig *cfg, int r_on, int g_on, int b_on) 
     }
 }
 
+static void pca9685_set_relay(const AppConfig *cfg, int on) {
+    if (!cfg->relay_enable) return;
+    int duty;
+    if (cfg->pca9685_relay_active_high) {
+        duty = on ? cfg->pca9685_rgb_on_duty : cfg->pca9685_rgb_off_duty;
+    } else {
+        duty = on ? cfg->pca9685_rgb_off_duty : cfg->pca9685_rgb_on_duty;
+    }
+    char tool_path[512], q_bus[80], q_tool[600], cmd[768];
+    snprintf(tool_path, sizeof(tool_path), "%s/pca9685_set_pwm", cfg->base_dir);
+    shell_quote(cfg->pca9685_bus, q_bus, sizeof(q_bus));
+    shell_quote(tool_path, q_tool, sizeof(q_tool));
+    snprintf(cmd, sizeof(cmd), "%s --bus %s --addr 0x%02x --channel %d --duty %d",
+             q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_relay_ch, duty);
+    if (run_shell_command(cmd) != 0) {
+        log_msg("[relay] WARNING: CH%d duty=%d write failed", cfg->pca9685_relay_ch, duty);
+    }
+}
+
 static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
-    int buzzer_on = 0, r_on = 0, g_on = 0, b_on = 0;
+    int buzzer_on = 0, r_on = 0, g_on = 0, b_on = 0, relay_on = 0;
     int use_pca = (strcmp(cfg->rgb_backend, "pca9685") == 0);
 
     if (strcmp(state, "NORMAL") == 0) {
@@ -732,10 +772,12 @@ static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
     } else if (strcmp(state, "ALARM") == 0) {
         r_on = 1;
         buzzer_on = 1;
+        relay_on = 1;
     } else if (strcmp(state, "FAULT") == 0) {
         r_on = 1;
         b_on = 1;
         buzzer_on = 1;
+        /* FAULT: relay off to avoid false activation */
     }
 
     /* Buzzer always on GPIO */
@@ -750,8 +792,11 @@ static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
         write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, b_on);
     }
 
-    log_msg("[actuators] state=%s buzzer=%d R=%d G=%d B=%d rgb_backend=%s",
-            state, buzzer_on, r_on, g_on, b_on, cfg->rgb_backend);
+    /* Relay: PCA9685 CH5 */
+    pca9685_set_relay(cfg, relay_on);
+
+    log_msg("[actuators] state=%s buzzer=%d R=%d G=%d B=%d relay=%d rgb_backend=%s",
+            state, buzzer_on, r_on, g_on, b_on, relay_on, cfg->rgb_backend);
 }
 
 static void all_off(const AppConfig *cfg) {
@@ -768,6 +813,10 @@ static void all_off(const AppConfig *cfg) {
         write_gpio_output(cfg->gpio_rgb_g, cfg->gpio_rgb_g_active_high, 0);
         write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, 0);
     }
+
+    /* Relay off */
+    pca9685_set_relay(cfg, 0);
+
     log_msg("[actuators] all_off (backend=%s)", cfg->rgb_backend);
 }
 
@@ -1159,7 +1208,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
         ai_json = ai_buf;
     }
 
-    int buzzer_out = 0, rgb_r_out = 0, rgb_g_out = 0, rgb_b_out = 0;
+    int buzzer_out = 0, rgb_r_out = 0, rgb_g_out = 0, rgb_b_out = 0, relay_out = 0;
     if (strcmp(ctx->state, "NORMAL") == 0) {
         rgb_g_out = 1;
     } else if (strcmp(ctx->state, "VERIFY") == 0) {
@@ -1167,6 +1216,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
     } else if (strcmp(ctx->state, "ALARM") == 0) {
         rgb_r_out = 1;
         buzzer_out = 1;
+        relay_out = 1;
     } else if (strcmp(ctx->state, "FAULT") == 0) {
         rgb_r_out = 1;
         rgb_b_out = 1;
@@ -1186,7 +1236,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  \"risk_score\": %d,\n"
             "  \"need_snap\": %s,\n"
             "  \"sensors\": {\"door\": %d, \"pir\": %d, \"flame\": %d, \"mq2\": %d},\n"
-            "  \"actuators\": {\"relay\": 0, \"pump\": 0, \"buzzer\": %d, \"rgb_r\": %d, \"rgb_g\": %d, \"rgb_b\": %d},\n"
+            "  \"actuators\": {\"relay\": %d, \"pump\": 0, \"buzzer\": %d, \"rgb_r\": %d, \"rgb_g\": %d, \"rgb_b\": %d},\n"
             "  \"vision\": {\n"
             "    \"frame_id\": %d,\n"
             "    \"image_url\": null,\n"
@@ -1205,7 +1255,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  }\n"
             "}\n",
             cfg->device_id, ctx->seq, ctx->state, ctx->risk_score, ctx->need_snap ? "true" : "false",
-            sensors->door, sensors->pir, sensors->flame, sensors->mq2, buzzer_out, rgb_r_out, rgb_g_out, rgb_b_out, ctx->seq,
+            sensors->door, sensors->pir, sensors->flame, sensors->mq2, relay_out, buzzer_out, rgb_r_out, rgb_g_out, rgb_b_out, ctx->seq,
             ctx->capture_ok ? "true" : "false", ai_json, ctx->gpio_ms, ctx->capture_ms, ctx->ai_ms,
             post_ms, total_ms, cfg->gpio_pir, sensors->raw_value, cfg->gpio_active_high ? "true" : "false",
             cfg->gpio_flame, sensors->flame_raw, cfg->gpio_flame_active_high ? "true" : "false",

@@ -218,15 +218,17 @@ Task11-A 已验证：OLED SSD1306（/dev/i2c-0 addr 0x3C）每轮显示 `state /
 
 ### 继电器/水泵联动
 
+Task11-B 已验证：KY-019 5V 继电器模块接 PCA9685 CH5，active high（duty=4095 吸合），默认 OFF。
+
 | 条件 | relay | pump |
 |---|---|---|
-| `flame=1` → ALARM | 动作 | 开（喷淋，隔离水箱通过后） |
-| `mq2=1` → ALARM | 可选动作 | 不强制 |
-| PIR/VERIFY | 不动作 | 不动作 |
+| `flame=1` → ALARM | 动作（已验证） | 开（喷淋，隔离水箱通过后） |
+| `mq2=1` → ALARM | 动作（已验证） | 不强制 |
+| PIR/VERIFY | OFF | 不动作 |
 | NORMAL | OFF | OFF |
-| FAULT | 安全态 | OFF |
+| FAULT | OFF（避免误动作） | OFF |
 
-解除/恢复：传感器复位且人工消警后执行器回默认 OFF。
+解除/恢复：传感器复位且人工消警后执行器回默认 OFF。RELAY_ENABLE=0|1 可选。证据见 `tests/imx6ull/2026-06-07_p1_relay_ch5.md`。
 
 ### SoC 温度设备热健康
 
