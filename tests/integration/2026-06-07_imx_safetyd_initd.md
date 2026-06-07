@@ -138,18 +138,23 @@ ps | grep imx_safetyd | grep -v grep
 命令：
 
 ```bash
+/etc/init.d/S99imx-safetyd stop
 /etc/init.d/S99imx-safetyd restart
 /etc/init.d/S99imx-safetyd status
+ps | grep imx_safetyd | grep -v grep
 ```
 
 输出摘要：
 
 ```text
-[imx-safetyd] started (pid 981)
-[imx-safetyd] running (pid 981)
+[imx-safetyd] not running
+[imx-safetyd] not running
+[imx-safetyd] started (pid 1045)
+[imx-safetyd] running (pid 1045)
+1045 root /opt/edge-ai-safety-monitor/imx_safetyd --mode loop ...
 ```
 
-说明：restart = stop + start 行为正常。
+说明：修复后 `restart` 在 stopped 状态也会继续执行 start，行为正常。最后停止态 `status` 返回 3，属于 init.d stopped 状态语义。
 
 ## 10. 开机自启判断
 

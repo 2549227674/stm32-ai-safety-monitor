@@ -111,7 +111,7 @@ stop_service() {
     cleanup_stale_pidfile
     if ! pid_is_running; then
         log "not running"
-        exit 0
+        return 0
     fi
 
     PID="$(cat "$PID_FILE")"
@@ -123,7 +123,7 @@ stop_service() {
         if ! kill -0 "$PID" 2>/dev/null; then
             rm -f "$PID_FILE"
             log "stopped"
-            exit 0
+            return 0
         fi
         i=$((i + 1))
         sleep 1
@@ -132,6 +132,7 @@ stop_service() {
     kill -KILL "$PID" 2>/dev/null || true
     rm -f "$PID_FILE"
     log "stopped after SIGKILL"
+    return 0
 }
 
 status_service() {
