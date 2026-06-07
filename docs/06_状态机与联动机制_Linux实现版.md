@@ -180,6 +180,11 @@ Task10-C 已验证 MQ-2 DO 接入：
 - 需先 unbind ecspi1 驱动才能导出 gpio120
 - 证据见 `tests/imx6ull/2026-06-07_p0_mq2_sensor.md`
 
+### 6.12.3 Task10-D PIR 真实触发（沿用历史证据）
+
+Task10-D 不重复测试，沿用 Task03-A gpio117 历史实测证据：空闲 raw=0、触发 raw=1。
+- 证据见 `tests/imx6ull/2026-06-06_gpio_input_probe.md`、`tests/imx6ull/2026-06-07_p0_pir_reuse_task03a.md`
+
 ## 6.12 Task07-D 后续原生化增强（可选，不阻塞 MVP）
 
 Task07-C 当前已实现 C 版 imx_safetyd，支持 once/loop/flush、真实 gpio117 空闲读取、NORMAL/VERIFY、OPi5 offline fallback、Flask spool/flush。
