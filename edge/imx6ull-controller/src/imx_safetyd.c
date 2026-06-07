@@ -57,6 +57,9 @@
 #define DEFAULT_SOC_TEMP_ENABLE 1
 #define DEFAULT_SOC_TEMP_PATH "/sys/class/thermal/thermal_zone0/temp"
 #define DEFAULT_SOC_TEMP_WARN_C 70
+#define DEFAULT_PUMP_ENABLE 0
+#define DEFAULT_PCA9685_PUMP_CH 6
+#define DEFAULT_PCA9685_PUMP_ACTIVE_HIGH 1
 #define DEFAULT_BACKEND_URL "http://127.0.0.1:5000"
 #define DEFAULT_OPI5_URL "http://127.0.0.1:8080"
 #define INITIAL_SEQ 9000
@@ -102,6 +105,9 @@ typedef struct {
     int soc_temp_enable;
     char soc_temp_path[256];
     int soc_temp_warn_c;
+    int pump_enable;
+    int pca9685_pump_ch;
+    int pca9685_pump_active_high;
 } AppConfig;
 
 typedef struct {
@@ -270,6 +276,9 @@ static void usage(const char *prog) {
         "  --soc-temp-enable 0|1       default/env SOC_TEMP_ENABLE\n"
         "  --soc-temp-path PATH        default/env SOC_TEMP_PATH\n"
         "  --soc-temp-warn-c N         default/env SOC_TEMP_WARN_C\n"
+        "  --pump-enable 0|1           default/env PUMP_ENABLE\n"
+        "  --pca9685-pump-ch N        default/env PCA9685_PUMP_CH\n"
+        "  --pca9685-pump-active-high 0|1 default/env PCA9685_PUMP_ACTIVE_HIGH\n"
         "  --help\n"
         "\n"
         "Notes:\n"
@@ -359,6 +368,9 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->soc_temp_enable = set_from_env_int("SOC_TEMP_ENABLE", DEFAULT_SOC_TEMP_ENABLE);
     set_from_env_string(cfg->soc_temp_path, sizeof(cfg->soc_temp_path), "SOC_TEMP_PATH", DEFAULT_SOC_TEMP_PATH);
     cfg->soc_temp_warn_c = set_from_env_int("SOC_TEMP_WARN_C", DEFAULT_SOC_TEMP_WARN_C);
+    cfg->pump_enable = set_from_env_int("PUMP_ENABLE", DEFAULT_PUMP_ENABLE);
+    cfg->pca9685_pump_ch = set_from_env_int("PCA9685_PUMP_CH", DEFAULT_PCA9685_PUMP_CH);
+    cfg->pca9685_pump_active_high = set_from_env_int("PCA9685_PUMP_ACTIVE_HIGH", DEFAULT_PCA9685_PUMP_ACTIVE_HIGH);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -504,6 +516,15 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
             copy_string(cfg->soc_temp_path, sizeof(cfg->soc_temp_path), argv[++i]);
         } else if (strcmp(argv[i], "--soc-temp-warn-c") == 0 && i + 1 < argc) {
             if (parse_int(argv[++i], &cfg->soc_temp_warn_c) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--pump-enable") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pump_enable) != 0) {
+                fprintf(stderr, "--pump-enable requires 0|1\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--pca9685-pump-ch") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_pump_ch) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--pca9685-pump-active-high") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->pca9685_pump_active_high) != 0) { return -1; }
         } else {
             fprintf(stderr, "unknown or incomplete argument: %s\n", argv[i]);
             usage(argv[0]);
@@ -785,8 +806,27 @@ static void pca9685_set_relay(const AppConfig *cfg, int on) {
     }
 }
 
+static void pca9685_set_pump(const AppConfig *cfg, int on) {
+    if (!cfg->pump_enable) return;
+    int duty;
+    if (cfg->pca9685_pump_active_high) {
+        duty = on ? cfg->pca9685_rgb_on_duty : cfg->pca9685_rgb_off_duty;
+    } else {
+        duty = on ? cfg->pca9685_rgb_off_duty : cfg->pca9685_rgb_on_duty;
+    }
+    char tool_path[512], q_bus[80], q_tool[600], cmd[768];
+    snprintf(tool_path, sizeof(tool_path), "%s/pca9685_set_pwm", cfg->base_dir);
+    shell_quote(cfg->pca9685_bus, q_bus, sizeof(q_bus));
+    shell_quote(tool_path, q_tool, sizeof(q_tool));
+    snprintf(cmd, sizeof(cmd), "%s --bus %s --addr 0x%02x --channel %d --duty %d",
+             q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_pump_ch, duty);
+    if (run_shell_command(cmd) != 0) {
+        log_msg("[pump] WARNING: CH%d duty=%d write failed", cfg->pca9685_pump_ch, duty);
+    }
+}
+
 static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
-    int buzzer_on = 0, r_on = 0, g_on = 0, b_on = 0, relay_on = 0;
+    int buzzer_on = 0, r_on = 0, g_on = 0, b_on = 0, relay_on = 0, pump_on = 0;
     int use_pca = (strcmp(cfg->rgb_backend, "pca9685") == 0);
 
     if (strcmp(state, "NORMAL") == 0) {
@@ -797,11 +837,12 @@ static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
         r_on = 1;
         buzzer_on = 1;
         relay_on = 1;
+        pump_on = 1;
     } else if (strcmp(state, "FAULT") == 0) {
         r_on = 1;
         b_on = 1;
         buzzer_on = 1;
-        /* FAULT: relay off to avoid false activation */
+        /* FAULT: relay/pump off to avoid false activation */
     }
 
     /* Buzzer always on GPIO */
@@ -819,8 +860,11 @@ static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
     /* Relay: PCA9685 CH5 */
     pca9685_set_relay(cfg, relay_on);
 
-    log_msg("[actuators] state=%s buzzer=%d R=%d G=%d B=%d relay=%d rgb_backend=%s",
-            state, buzzer_on, r_on, g_on, b_on, relay_on, cfg->rgb_backend);
+    /* Pump: PCA9685 CH6 (dual-load: water pump + water gun emitter) */
+    pca9685_set_pump(cfg, pump_on);
+
+    log_msg("[actuators] state=%s buzzer=%d R=%d G=%d B=%d relay=%d pump=%d rgb_backend=%s",
+            state, buzzer_on, r_on, g_on, b_on, relay_on, pump_on, cfg->rgb_backend);
 }
 
 static void all_off(const AppConfig *cfg) {
@@ -840,6 +884,9 @@ static void all_off(const AppConfig *cfg) {
 
     /* Relay off */
     pca9685_set_relay(cfg, 0);
+
+    /* Pump off */
+    pca9685_set_pump(cfg, 0);
 
     log_msg("[actuators] all_off (backend=%s)", cfg->rgb_backend);
 }
@@ -885,7 +932,11 @@ static void oled_refresh(int fd, const AppConfig *cfg, const SensorState *sensor
     } else {
         snprintf(line2, sizeof(line2), "Temp: N/A");
     }
-    snprintf(line3, sizeof(line3), "S:P%d F%d M%d", sensors->pir, sensors->flame, sensors->mq2);
+    snprintf(line3, sizeof(line3), "S:P%dF%dM%d B%dR%dP%d",
+             sensors->pir, sensors->flame, sensors->mq2,
+             (ctx->state[0] == 'A' || ctx->state[0] == 'F') ? 1 : 0,
+             (ctx->state[0] == 'A') ? 1 : 0,
+             (ctx->state[0] == 'A') ? 1 : 0);
 
     oled_draw_text(fd, 0, 0, line0);
     oled_draw_text(fd, 0, 1, line1);
@@ -1250,7 +1301,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
         ai_json = ai_buf;
     }
 
-    int buzzer_out = 0, rgb_r_out = 0, rgb_g_out = 0, rgb_b_out = 0, relay_out = 0;
+    int buzzer_out = 0, rgb_r_out = 0, rgb_g_out = 0, rgb_b_out = 0, relay_out = 0, pump_out = 0;
     if (strcmp(ctx->state, "NORMAL") == 0) {
         rgb_g_out = 1;
     } else if (strcmp(ctx->state, "VERIFY") == 0) {
@@ -1259,6 +1310,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
         rgb_r_out = 1;
         buzzer_out = 1;
         relay_out = 1;
+        pump_out = 1;
     } else if (strcmp(ctx->state, "FAULT") == 0) {
         rgb_r_out = 1;
         rgb_b_out = 1;
@@ -1289,7 +1341,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  \"risk_score\": %d,\n"
             "  \"need_snap\": %s,\n"
             "  \"sensors\": {\"door\": %d, \"pir\": %d, \"flame\": %d, \"mq2\": %d%s},\n"
-            "  \"actuators\": {\"relay\": %d, \"pump\": 0, \"buzzer\": %d, \"rgb_r\": %d, \"rgb_g\": %d, \"rgb_b\": %d},\n"
+            "  \"actuators\": {\"relay\": %d, \"pump\": %d, \"buzzer\": %d, \"rgb_r\": %d, \"rgb_g\": %d, \"rgb_b\": %d},\n"
             "  \"device_health\": \"%s\",\n"
             "  \"vision\": {\n"
             "    \"frame_id\": %d,\n"
@@ -1310,7 +1362,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "}\n",
             cfg->device_id, ctx->seq, ctx->state, ctx->risk_score, ctx->need_snap ? "true" : "false",
             sensors->door, sensors->pir, sensors->flame, sensors->mq2, soc_temp_json,
-            relay_out, buzzer_out, rgb_r_out, rgb_g_out, rgb_b_out,
+            relay_out, pump_out, buzzer_out, rgb_r_out, rgb_g_out, rgb_b_out,
             ctx->device_health[0] ? ctx->device_health : "UNKNOWN",
             ctx->seq, ctx->capture_ok ? "true" : "false", ai_json,
             ctx->gpio_ms, ctx->capture_ms, ctx->ai_ms, post_ms, total_ms,

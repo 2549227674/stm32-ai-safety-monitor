@@ -240,7 +240,7 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `relay` | 0/1 | 继电器，Task11-B 已真实化（PCA9685 CH5，active high，ALARM=1） |
-| `pump` | 0/1 | 水泵，P1 切片逐步真实化 |
+| `pump` | 0/1 | 水泵/水枪双负载，Task11-D 已真实化（PCA9685 CH6，active high，ALARM=1）；pump=1 表示 CH6 喷淋输出动作 |
 | `buzzer` | 0/1 | 蜂鸣器，P0 已有 |
 | `rgb_r/g/b` | 0/1 或 PWM duty | RGB，P0 已有 |
 

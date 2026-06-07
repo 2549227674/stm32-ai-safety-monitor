@@ -255,15 +255,12 @@ cat /sys/class/thermal/thermal_zone0/temp   # 毫摄氏度，47000 = 47°C
 | CH3 | RGB-G | PCA9685 PWM | — | Task10-E2 已用，推荐演示 |
 | CH4 | RGB-B | PCA9685 PWM | — | Task10-E2 已用，推荐演示 |
 | CH5 | 继电器 relay | CH5 → relay IN | OFF | 已验证：KY-019 5V 模块，active high（duty=4095 吸合），默认 OFF，ALARM 时动作。线圈独立 5V，共地。 |
-| CH6 | 水泵 pump | CH6 → MOS 栅极 → 水泵 | OFF | 隔离水箱演示；独立 5V；续流。P1 待验 |
+| CH6 | 水泵/水枪 pump | CH6 → MOS → 水泵+水枪并联 | OFF | 已验证：双负载（水泵+水枪发射器），active high，default OFF，ALARM 动作，隔离水箱短时演示通过。 |
 | CH7–15 | 空闲 | — | — | 预留 |
 
 > ~~**[CLAUDE_CODE_TODO | VERIFY]** CH5 继电器默认 OFF 与 3.3V 触发~~ **已验证**：KY-019 5V 模块，默认 OFF（上电不吸合），PCA9685 CH5 active high（duty=4095 吸合），ALARM 时 relay=1。证据见 `tests/imx6ull/2026-06-07_p1_relay_ch5.md`。
 
-> **[CLAUDE_CODE_TODO | VERIFY]** CH6 水泵 MOS 默认 OFF 与隔离水箱安全
-> - 期望产物/操作：先空泵点动确认通断与默认 OFF；再装水闭环测试。
-> - 回填位置：CANONICAL 0.7；docs/03。
-> - 验收：默认 OFF、ALARM 触发喷淋、解除停泵、无漏电无溅水到电路。
+> ~~**[CLAUDE_CODE_TODO | VERIFY]** CH6 水泵 MOS 默认 OFF 与隔离水箱安全~~ **已验证**：CH6 active high（duty=4095 开启），默认 OFF（duty=0 双负载均不动作）。本轮 CH6 实际驱动双负载：水泵 + 水枪发射器（并联在 MOS VOUT 端）。ALARM 时 pump=1 双负载动作，退出 all_off 关闭。短时演示通过，无漏电无溅水到电路。证据见 `tests/imx6ull/2026-06-07_p1_pump_water_tank.md`。
 
 > **[CLAUDE_CODE_TODO | MEASURE]** 低压负载供电预算：继电器、水泵、电源温升、压降
 > - 期望产物/操作：万用表测各路电压电流，记录负载启动时是否掉压。

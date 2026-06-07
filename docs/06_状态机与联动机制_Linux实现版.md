@@ -220,15 +220,17 @@ Task11-A 已验证：OLED SSD1306（/dev/i2c-0 addr 0x3C）每轮显示 `state /
 
 Task11-B 已验证：KY-019 5V 继电器模块接 PCA9685 CH5，active high（duty=4095 吸合），默认 OFF。
 
+Task11-D 已验证：PCA9685 CH6 → MOS → 双负载（水泵 + 水枪发射器并联），active high（duty=4095 开启），默认 OFF。`pump=1` 表示 CH6 双负载喷淋输出动作。
+
 | 条件 | relay | pump |
 |---|---|---|
-| `flame=1` → ALARM | 动作（已验证） | 开（喷淋，隔离水箱通过后） |
-| `mq2=1` → ALARM | 动作（已验证） | 不强制 |
-| PIR/VERIFY | OFF | 不动作 |
+| `flame=1` → ALARM | 动作（已验证） | 动作（双负载：水泵+水枪） |
+| `mq2=1` → ALARM | 动作（已验证） | 动作（双负载：水泵+水枪） |
+| PIR/VERIFY | OFF | OFF |
 | NORMAL | OFF | OFF |
 | FAULT | OFF（避免误动作） | OFF |
 
-解除/恢复：传感器复位且人工消警后执行器回默认 OFF。RELAY_ENABLE=0|1 可选。证据见 `tests/imx6ull/2026-06-07_p1_relay_ch5.md`。
+解除/恢复：传感器复位且人工消警后执行器回默认 OFF。`all_off()` 确保退出时 relay=0, pump=0。RELAY_ENABLE=0|1、PUMP_ENABLE=0|1 可选。soc_temp 不驱动 pump。证据见 `tests/imx6ull/2026-06-07_p1_relay_ch5.md`、`tests/imx6ull/2026-06-07_p1_pump_water_tank.md`。
 
 ### SoC 温度设备热健康
 
