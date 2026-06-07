@@ -20,7 +20,7 @@
 |---|---|
 | 工作目录 | WSL 原生目录 `/home/qbz415/SafetyMonitor`；不要再使用 `/mnt/c/program1/SafetyMonitor` 开发 |
 | 当前分支 | `migration/imx6ull-opi5-edge-ai` |
-| 最新迁移提交 | `de8c180 task07-c: add c imx safetyd daemon`；Task07-C2 已完成并在本轮提交 |
+| 最新迁移提交 | `ecc0616 task07-c2: add initd service for imx safetyd`；Task07-C2 已完成 |
 | 总体阶段 | Task07-C2 已完成：C 版 imx_safetyd + BusyBox init.d 启动管理通过 |
 | 新主线 | i.MX6ULL Pro + Orange Pi 5 + Flask |
 | 旧主线 | STM32 + ESP32-CAM 归档为 legacy |
