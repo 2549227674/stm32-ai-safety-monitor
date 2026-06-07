@@ -140,5 +140,6 @@ Task07-C 已落地 C 版主控程序 `edge/imx6ull-controller/src/imx_safetyd.c`
 - Flask 不可达时写入 `/opt/edge-ai-safety-monitor/spool/imx-safetyd/pending/`，`flush` 模式恢复后移动到 `sent/`。
 - 每次运行写 `/opt/edge-ai-safety-monitor/run/imx_safetyd_status.json` 和 `/opt/edge-ai-safety-monitor/run/imx_safetyd.log`。
 - 本轮不真实驱动继电器、蜂鸣器、风扇、水泵；`actuators` 仍是安全态事件字段，AI/OPi5/Flask 不控制执行器。
+- 在当前非 systemd 镜像上，可由 BusyBox/SysV `init.d/S99imx-safetyd` 管理进程；`/etc/init.d/rcS` 会遍历 `S??*`，因此具备开机自启条件，但需板端本地 `imx-safetyd.env`。
 
 证据见 `tests/integration/2026-06-07_imx_safetyd_c.md`。
