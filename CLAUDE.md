@@ -20,11 +20,11 @@
 | 工作目录 | WSL 原生目录 `/home/qbz415/SafetyMonitor`；不要再使用 `/mnt/c/program1/SafetyMonitor` 开发 |
 | 当前分支 | `migration/imx6ull-opi5-edge-ai` |
 | 最新迁移提交 | `a44fd9f task01: migrate to imx6ull+opi5 edge-ai, archive legacy` |
-| 总体阶段 | Task07-A 已完成：端边最小垂直切片（mock AI）通过 |
+| 总体阶段 | Task08-A 已完成：云台分时巡检 + 多角度抓拍（mock AI）通过 |
 | 新主线 | i.MX6ULL Pro + Orange Pi 5 + Flask |
 | 旧主线 | STM32 + ESP32-CAM 归档为 legacy |
 | 当前执行器 | 本地 Codex / Claude Code |
-| 首要目标 | Task07-B imx_safetyd 初版 / Task08 云台巡检 / Task05-B RKNN demo，待用户决策 |
+| 首要目标 | Task07-B imx_safetyd 初版 / Task05-B RKNN demo / 报告与答辩材料，待用户决策 |
 
 ## 2. 项目主线与三机角色
 

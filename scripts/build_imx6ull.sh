@@ -28,6 +28,10 @@ case "$TARGET_OR_SRC" in
     SRC="edge/imx6ull-controller/src/pca9685_servo_test.c"
     OUT_NAME="${2:-pca9685_servo_test}"
     ;;
+  pca9685_set_pose)
+    SRC="edge/imx6ull-controller/src/pca9685_set_pose.c"
+    OUT_NAME="${2:-pca9685_set_pose}"
+    ;;
   *)
     SRC="$TARGET_OR_SRC"
     OUT_NAME="${2:-hello_imx6ull}"
