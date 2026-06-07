@@ -1,4 +1,9 @@
-"""Qwen3-VL backend: calls the single-shot C++ binary and parses JSON output."""
+"""Qwen3-VL backend: supports single-shot and persistent worker modes.
+
+Mode controlled by QWEN3VL_MODE env var:
+  - single_shot: calls C++ binary per request (default, fallback)
+  - worker: uses persistent C++ worker process (faster after first request)
+"""
 
 import json
 import os
@@ -18,12 +23,35 @@ DEFAULT_QUESTION = (
 def run_inference(
     image_bytes: bytes,
     question: str = DEFAULT_QUESTION,
-    encoder_path: str = DEFAULT_ENCODER,
-    llm_path: str = DEFAULT_LLM,
-    binary_path: str = DEFAULT_BINARY,
-    core_num: str = DEFAULT_CORE_NUM,
+    encoder_path: str = None,
+    llm_path: str = None,
+    binary_path: str = None,
+    core_num: str = None,
 ) -> dict:
-    """Run Qwen3-VL inference on image bytes. Returns dict with ok/text/timing."""
+    """Run Qwen3-VL inference. Dispatches to worker or single-shot based on QWEN3VL_MODE."""
+    mode = os.environ.get("QWEN3VL_MODE", "single_shot")
+
+    if mode == "worker":
+        return _run_worker(image_bytes, question)
+    return _run_single_shot(image_bytes, question, encoder_path, llm_path, binary_path, core_num)
+
+
+def _run_worker(image_bytes, question):
+    """Inference via persistent worker process."""
+    try:
+        import qwen3vl_worker_client
+        return qwen3vl_worker_client.run_inference(image_bytes, question)
+    except Exception as e:
+        return {"ok": False, "error": f"worker error: {e}"}
+
+
+def _run_single_shot(image_bytes, question, encoder_path, llm_path, binary_path, core_num):
+    """Inference via single-shot C++ binary (original method)."""
+    encoder_path = encoder_path or os.environ.get("QWEN3VL_ENCODER", DEFAULT_ENCODER)
+    llm_path = llm_path or os.environ.get("QWEN3VL_LLM", DEFAULT_LLM)
+    binary_path = binary_path or os.environ.get("QWEN3VL_BINARY", DEFAULT_BINARY)
+    core_num = core_num or os.environ.get("QWEN3VL_CORE_NUM", DEFAULT_CORE_NUM)
+
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
         f.write(image_bytes)
         tmp_path = f.name
@@ -36,7 +64,6 @@ def run_inference(
             timeout=120,
         )
 
-        # The binary outputs diagnostic info on stderr and JSON on the last line of stdout
         output = result.stdout.strip()
         if not output:
             return {
@@ -44,7 +71,6 @@ def run_inference(
                 "error": f"no stdout, stderr={result.stderr[-500:] if result.stderr else ''}",
             }
 
-        # Find the JSON line (last line starting with {)
         json_line = None
         for line in reversed(output.split("\n")):
             line = line.strip()
@@ -55,8 +81,7 @@ def run_inference(
         if not json_line:
             return {"ok": False, "error": f"no JSON in stdout: {output[-300:]}"}
 
-        parsed = json.loads(json_line)
-        return parsed
+        return json.loads(json_line)
 
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "inference timeout (120s)"}

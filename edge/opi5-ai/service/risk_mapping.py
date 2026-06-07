@@ -8,7 +8,11 @@ _FIRE_KEYWORDS = ["火焰", "fire", "着火", "燃烧", "起火", "明火"]
 _SMOKE_KEYWORDS = ["烟雾", "smoke", "浓烟", "烟", "冒烟"]
 _PERSON_KEYWORDS = ["人员", "person", "人", "有人", "人物", "人员活动"]
 _HAZARD_KEYWORDS = ["危险", "hazard", "异常", "安全风险", "报警", "danger", "alarm"]
-_NEGATION_PREFIXES = ["未", "没有", "无", "不存在", "未发现", "未观察到", "没有发现", "没有观察到"]
+_NEGATION_PREFIXES = [
+    "未", "没有", "无", "不存在", "未发现", "未观察到", "没有发现", "没有观察到",
+    "不能", "不确定", "无法", "难以", "不能确定", "无法确定", "无法判断",
+    "是否", "不知道",
+]
 
 
 def _is_negated(text: str, keyword: str) -> bool:
