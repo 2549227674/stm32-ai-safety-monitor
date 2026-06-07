@@ -243,11 +243,7 @@ cat /sys/class/thermal/thermal_zone0/temp   # 毫摄氏度，47000 = 47°C
 
 定位：测的是**主控芯片自身温度**，不是环境温度，也没有湿度。仅作"设备热健康"用途，与火灾报警无关。不提供湿度，不用于火灾 ALARM 判定。
 
-> **[CLAUDE_CODE_TODO | VERIFY]** SoC 温度路径：thermal_zone0 或 hwmon 路径是否可读
-> - 为何 GPT 给不了：部分内核配置把它放在 `/sys/class/hwmon/` 或未导出，需板端实测。
-> - 期望产物/操作：板端 `cat /sys/class/thermal/thermal_zone0/temp`；若无，试 `/sys/class/hwmon/hwmon0/temp1_input`；记录读到的数值与路径。
-> - 回填位置：CANONICAL 0.7；docs/10；tests/imx6ull。
-> - 验收：能稳定读到一个合理的 SoC 温度（约 40–60°C）。
+> ~~**[CLAUDE_CODE_TODO | VERIFY]** SoC 温度路径：thermal_zone0 或 hwmon 路径是否可读~~ **已验证**：`/sys/class/thermal/thermal_zone0/temp` 可读，返回 46589（46.6°C），合理范围。hwmon 备选路径未使用。证据见 `tests/imx6ull/2026-06-07_p1_soc_temp_health.md`。
 
 ### PCA9685 通道分配（输出，单一全局 50Hz）
 

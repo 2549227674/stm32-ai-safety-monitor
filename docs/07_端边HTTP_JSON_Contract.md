@@ -218,7 +218,7 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 
 | 字段 | 类型 | 单位 | 说明 |
 |---|---|---|---|
-| `soc_temp` | float | 摄氏度 | i.MX6ULL SoC 内部温度，不是环境温度 |
+| `soc_temp` | float or null | 摄氏度 | i.MX6ULL SoC 内部温度（Task11-C 已接入），不是环境温度；读取失败时为 null |
 
 - 不加 `humidity`（本轮不做温湿度外设）。
 - 不加环境 `temp`。
@@ -247,6 +247,14 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 - AI/OPi5/Flask 不允许直接下发控制。
 - `control_allowed=false` 保持不变。
 
-### device_health 扩展（raw_json 透出）
+### device_health 扩展（raw_json 透出，Task11-C 已接入）
 
-当 `soc_temp` 超过阈值时，`device_health` 字段可从 `NORMAL` 变为 `WARN`，上报 Dashboard/OLED 警告。此字段仅通过 `raw_json` 透出，不强制 DB/schema 改动。
+当 `soc_temp` 超过阈值时，`device_health` 字段从 `NORMAL` 变为 `WARN`，上报 Dashboard/OLED 警告。此字段通过 `raw_json` 透出，不强制 DB/schema 改动。
+
+| 值 | 条件 | 说明 |
+|---|---|---|
+| `NORMAL` | `soc_temp < SOC_TEMP_WARN_C` | 正常 |
+| `WARN` | `soc_temp >= SOC_TEMP_WARN_C` | 过热警告 |
+| `UNKNOWN` | soc_temp 读取失败或禁用 | 温度未知 |
+
+Task11-C 已验证通过，证据见 `tests/imx6ull/2026-06-07_p1_soc_temp_health.md`。

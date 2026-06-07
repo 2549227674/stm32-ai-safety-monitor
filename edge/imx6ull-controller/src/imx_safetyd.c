@@ -54,6 +54,9 @@
 #define DEFAULT_RELAY_ENABLE 0
 #define DEFAULT_PCA9685_RELAY_CH 5
 #define DEFAULT_PCA9685_RELAY_ACTIVE_HIGH 1
+#define DEFAULT_SOC_TEMP_ENABLE 1
+#define DEFAULT_SOC_TEMP_PATH "/sys/class/thermal/thermal_zone0/temp"
+#define DEFAULT_SOC_TEMP_WARN_C 70
 #define DEFAULT_BACKEND_URL "http://127.0.0.1:5000"
 #define DEFAULT_OPI5_URL "http://127.0.0.1:8080"
 #define INITIAL_SEQ 9000
@@ -96,6 +99,9 @@ typedef struct {
     int relay_enable;
     int pca9685_relay_ch;
     int pca9685_relay_active_high;
+    int soc_temp_enable;
+    char soc_temp_path[256];
+    int soc_temp_warn_c;
 } AppConfig;
 
 typedef struct {
@@ -106,6 +112,8 @@ typedef struct {
     int flame_raw;
     int mq2;
     int mq2_raw;
+    double soc_temp_c;
+    int soc_temp_valid;
 } SensorState;
 
 typedef struct {
@@ -126,6 +134,7 @@ typedef struct {
     char ai_status[32];
     char backend_status[32];
     char last_error[256];
+    char device_health[16];
     int gpio_ms;
     int capture_ms;
     int ai_ms;
@@ -258,6 +267,9 @@ static void usage(const char *prog) {
         "  --relay-enable 0|1          default/env RELAY_ENABLE\n"
         "  --pca9685-relay-ch N        default/env PCA9685_RELAY_CH\n"
         "  --pca9685-relay-active-high 0|1 default/env PCA9685_RELAY_ACTIVE_HIGH\n"
+        "  --soc-temp-enable 0|1       default/env SOC_TEMP_ENABLE\n"
+        "  --soc-temp-path PATH        default/env SOC_TEMP_PATH\n"
+        "  --soc-temp-warn-c N         default/env SOC_TEMP_WARN_C\n"
         "  --help\n"
         "\n"
         "Notes:\n"
@@ -344,6 +356,9 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->relay_enable = set_from_env_int("RELAY_ENABLE", DEFAULT_RELAY_ENABLE);
     cfg->pca9685_relay_ch = set_from_env_int("PCA9685_RELAY_CH", DEFAULT_PCA9685_RELAY_CH);
     cfg->pca9685_relay_active_high = set_from_env_int("PCA9685_RELAY_ACTIVE_HIGH", DEFAULT_PCA9685_RELAY_ACTIVE_HIGH);
+    cfg->soc_temp_enable = set_from_env_int("SOC_TEMP_ENABLE", DEFAULT_SOC_TEMP_ENABLE);
+    set_from_env_string(cfg->soc_temp_path, sizeof(cfg->soc_temp_path), "SOC_TEMP_PATH", DEFAULT_SOC_TEMP_PATH);
+    cfg->soc_temp_warn_c = set_from_env_int("SOC_TEMP_WARN_C", DEFAULT_SOC_TEMP_WARN_C);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -480,6 +495,15 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
             if (parse_int(argv[++i], &cfg->pca9685_relay_ch) != 0) { return -1; }
         } else if (strcmp(argv[i], "--pca9685-relay-active-high") == 0 && i + 1 < argc) {
             if (parse_int(argv[++i], &cfg->pca9685_relay_active_high) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--soc-temp-enable") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->soc_temp_enable) != 0) {
+                fprintf(stderr, "--soc-temp-enable requires 0|1\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--soc-temp-path") == 0 && i + 1 < argc) {
+            copy_string(cfg->soc_temp_path, sizeof(cfg->soc_temp_path), argv[++i]);
+        } else if (strcmp(argv[i], "--soc-temp-warn-c") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->soc_temp_warn_c) != 0) { return -1; }
         } else {
             fprintf(stderr, "unknown or incomplete argument: %s\n", argv[i]);
             usage(argv[0]);
@@ -849,18 +873,19 @@ static int oled_open(const AppConfig *cfg) {
 }
 
 static void oled_refresh(int fd, const AppConfig *cfg, const SensorState *sensors, const EventContext *ctx) {
-    (void)cfg; /* reserved for future soc_temp display */
+    (void)cfg;
     if (fd < 0) return;
 
     char line0[32], line1[32], line2[32], line3[32];
     snprintf(line0, sizeof(line0), "State: %s", ctx->state[0] ? ctx->state : "N/A");
-    snprintf(line1, sizeof(line1), "Risk: %d", ctx->risk_score);
-    snprintf(line2, sizeof(line2), "S:P%d F%d M%d", sensors->pir, sensors->flame, sensors->mq2);
-    snprintf(line3, sizeof(line3), "B:%d R:%d G:%d B:%d",
-             (ctx->state[0] == 'A' || ctx->state[0] == 'F') ? 1 : 0,
-             (ctx->state[0] == 'A' || ctx->state[0] == 'F') ? 1 : 0,
-             (ctx->state[0] == 'N') ? 1 : 0,
-             (ctx->state[0] == 'V') ? 1 : 0);
+    snprintf(line1, sizeof(line1), "Risk:%d H:%s", ctx->risk_score,
+             ctx->device_health[0] ? ctx->device_health : "N/A");
+    if (sensors->soc_temp_valid) {
+        snprintf(line2, sizeof(line2), "Temp:%.1fC", sensors->soc_temp_c);
+    } else {
+        snprintf(line2, sizeof(line2), "Temp: N/A");
+    }
+    snprintf(line3, sizeof(line3), "S:P%d F%d M%d", sensors->pir, sensors->flame, sensors->mq2);
 
     oled_draw_text(fd, 0, 0, line0);
     oled_draw_text(fd, 0, 1, line1);
@@ -923,6 +948,23 @@ static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *
     }
 
     ctx->gpio_ms = (int)(now_ms() - t0);
+}
+
+static void read_soc_temp(const AppConfig *cfg, SensorState *sensors) {
+    sensors->soc_temp_valid = 0;
+    sensors->soc_temp_c = 0.0;
+
+    if (!cfg->soc_temp_enable) return;
+
+    char buf[64];
+    if (read_text_file_limited(cfg->soc_temp_path, buf, sizeof(buf)) != 0) {
+        return;
+    }
+    long milli = strtol(buf, NULL, 10);
+    if (milli <= 0 || milli > 200000) return;
+
+    sensors->soc_temp_c = (double)milli / 1000.0;
+    sensors->soc_temp_valid = 1;
 }
 
 static void compute_state(const AppConfig *cfg, const SensorState *sensors, EventContext *ctx) {
@@ -1222,6 +1264,17 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
         rgb_b_out = 1;
         buzzer_out = 1;
     }
+
+    /* Build soc_temp part of sensors JSON */
+    char soc_temp_json[64];
+    if (sensors->soc_temp_valid) {
+        snprintf(soc_temp_json, sizeof(soc_temp_json), ", \"soc_temp\": %.1f", sensors->soc_temp_c);
+    } else if (cfg->soc_temp_enable) {
+        snprintf(soc_temp_json, sizeof(soc_temp_json), ", \"soc_temp\": null");
+    } else {
+        soc_temp_json[0] = '\0';
+    }
+
     FILE *fp = fopen(out_file, "w");
     if (fp == NULL) {
         return;
@@ -1235,8 +1288,9 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  \"state\": \"%s\",\n"
             "  \"risk_score\": %d,\n"
             "  \"need_snap\": %s,\n"
-            "  \"sensors\": {\"door\": %d, \"pir\": %d, \"flame\": %d, \"mq2\": %d},\n"
+            "  \"sensors\": {\"door\": %d, \"pir\": %d, \"flame\": %d, \"mq2\": %d%s},\n"
             "  \"actuators\": {\"relay\": %d, \"pump\": 0, \"buzzer\": %d, \"rgb_r\": %d, \"rgb_g\": %d, \"rgb_b\": %d},\n"
+            "  \"device_health\": \"%s\",\n"
             "  \"vision\": {\n"
             "    \"frame_id\": %d,\n"
             "    \"image_url\": null,\n"
@@ -1255,9 +1309,12 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  }\n"
             "}\n",
             cfg->device_id, ctx->seq, ctx->state, ctx->risk_score, ctx->need_snap ? "true" : "false",
-            sensors->door, sensors->pir, sensors->flame, sensors->mq2, relay_out, buzzer_out, rgb_r_out, rgb_g_out, rgb_b_out, ctx->seq,
-            ctx->capture_ok ? "true" : "false", ai_json, ctx->gpio_ms, ctx->capture_ms, ctx->ai_ms,
-            post_ms, total_ms, cfg->gpio_pir, sensors->raw_value, cfg->gpio_active_high ? "true" : "false",
+            sensors->door, sensors->pir, sensors->flame, sensors->mq2, soc_temp_json,
+            relay_out, buzzer_out, rgb_r_out, rgb_g_out, rgb_b_out,
+            ctx->device_health[0] ? ctx->device_health : "UNKNOWN",
+            ctx->seq, ctx->capture_ok ? "true" : "false", ai_json,
+            ctx->gpio_ms, ctx->capture_ms, ctx->ai_ms, post_ms, total_ms,
+            cfg->gpio_pir, sensors->raw_value, cfg->gpio_active_high ? "true" : "false",
             cfg->gpio_flame, sensors->flame_raw, cfg->gpio_flame_active_high ? "true" : "false",
             cfg->gpio_mq2, sensors->mq2_raw, cfg->gpio_mq2_active_high ? "true" : "false",
             ctx->ai_status, backend_status, spool_path ? spool_path : "null", cfg->force_verify ? "true" : "false");
@@ -1304,6 +1361,15 @@ static void write_status_json(const AppPaths *paths, const EventContext *ctx, co
     if (fp == NULL) {
         return;
     }
+
+    /* Build soc_temp part */
+    char soc_temp_line[80];
+    if (sensors && sensors->soc_temp_valid) {
+        snprintf(soc_temp_line, sizeof(soc_temp_line), "  \"soc_temp\": %.1f,\n", sensors->soc_temp_c);
+    } else {
+        snprintf(soc_temp_line, sizeof(soc_temp_line), "  \"soc_temp\": null,\n");
+    }
+
     fprintf(fp,
             "{\n"
             "  \"program\": \"imx_safetyd_c\",\n"
@@ -1313,10 +1379,14 @@ static void write_status_json(const AppPaths *paths, const EventContext *ctx, co
             "  \"last_flame\": %d,\n"
             "  \"last_mq2\": %d,\n"
             "  \"last_risk_score\": %d,\n"
+            "%s"
+            "  \"device_health\": \"%s\",\n"
             "  \"last_ai_status\": \"%s\",\n"
             "  \"last_backend_status\": \"%s\",\n"
             "  \"last_error\": ",
             ctx->seq, ctx->state[0] ? ctx->state : "NONE", sensors ? sensors->pir : 0, sensors ? sensors->flame : 0, sensors ? sensors->mq2 : 0, ctx->risk_score,
+            soc_temp_line,
+            ctx->device_health[0] ? ctx->device_health : "UNKNOWN",
             ctx->ai_status[0] ? ctx->ai_status : "skipped",
             ctx->backend_status[0] ? ctx->backend_status : "none");
     if (ctx->last_error[0]) {
@@ -1343,11 +1413,26 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
     copy_string(ctx.backend_status, sizeof(ctx.backend_status), "skipped");
 
     read_gpio(cfg, &sensors, &ctx);
+    read_soc_temp(cfg, &sensors);
     compute_state(cfg, &sensors, &ctx);
+
+    /* Compute device_health (independent of state machine) */
+    if (sensors.soc_temp_valid && sensors.soc_temp_c >= cfg->soc_temp_warn_c) {
+        copy_string(ctx.device_health, sizeof(ctx.device_health), "WARN");
+    } else if (sensors.soc_temp_valid) {
+        copy_string(ctx.device_health, sizeof(ctx.device_health), "NORMAL");
+    } else {
+        copy_string(ctx.device_health, sizeof(ctx.device_health), "UNKNOWN");
+    }
+
     log_msg("[gpio] gpio%d raw=%d pir=%d | gpio%d flame_raw=%d flame=%d | gpio%d mq2_raw=%d mq2=%d",
             cfg->gpio_pir, sensors.raw_value, sensors.pir,
             cfg->gpio_flame, sensors.flame_raw, sensors.flame,
             cfg->gpio_mq2, sensors.mq2_raw, sensors.mq2);
+    if (cfg->soc_temp_enable) {
+        log_msg("[soc_temp] valid=%d temp=%.1fC warn=%dC device_health=%s",
+                sensors.soc_temp_valid, sensors.soc_temp_c, cfg->soc_temp_warn_c, ctx.device_health);
+    }
     log_msg("[state] %s risk_before_ai=%d need_snap=%s",
             ctx.state, ctx.risk_score_before_ai, ctx.need_snap ? "true" : "false");
 
@@ -1430,6 +1515,7 @@ static int flush_spool(const AppConfig *cfg, const AppPaths *paths) {
     copy_string(status_ctx.state, sizeof(status_ctx.state), "FLUSH");
     copy_string(status_ctx.ai_status, sizeof(status_ctx.ai_status), "skipped");
     copy_string(status_ctx.backend_status, sizeof(status_ctx.backend_status), "none");
+    copy_string(status_ctx.device_health, sizeof(status_ctx.device_health), "UNKNOWN");
 
     if (dir == NULL) {
         log_msg("[flush] open %s failed: %s", paths->pending_dir, strerror(errno));

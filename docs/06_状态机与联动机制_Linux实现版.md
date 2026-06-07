@@ -232,10 +232,14 @@ Task11-B 已验证：KY-019 5V 继电器模块接 PCA9685 CH5，active high（du
 
 ### SoC 温度设备热健康
 
+Task11-C 已验证：
+
 - `soc_temp` 过高 → `device_health=WARN` → 上报 Dashboard/OLED 警告。
-- `soc_temp` **不升级为火灾 ALARM**。
-- `soc_temp` 是主控芯片温度，不是环境温度，不产生 `humidity` 字段。
-- SoC 温度仅作监测上报，不驱动执行器。
+- `soc_temp` **不升级为火灾 ALARM**，不改变 `state`，不增加 `risk_score`。
+- `soc_temp` 是主控芯片温度（`/sys/class/thermal/thermal_zone0/temp`），不是环境温度，不产生 `humidity` 字段。
+- SoC 温度仅作监测上报，不驱动 relay/pump。
+- 配置：`SOC_TEMP_ENABLE=0|1`、`SOC_TEMP_PATH=...`、`SOC_TEMP_WARN_C=70`。
+- 证据见 `tests/imx6ull/2026-06-07_p1_soc_temp_health.md`。
 
 ### 安全红线
 
