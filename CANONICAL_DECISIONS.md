@@ -55,6 +55,7 @@ edge-ai-safety-monitor/
 ├── CLAUDE_CODE_TASK_06_backend_contract_extension.md
 ├── CLAUDE_CODE_TASK_07_end_edge_vertical_slice.md
 ├── CLAUDE_CODE_TASK_08_pan_tilt巡检演示.md
+├── CLAUDE_CODE_TASK_10_imx6ull_sensor_actuator_p0.md
 ├── VERTICAL_SLICE_INTEGRATION_CHECKLIST.md
 ├── common/
 │   └── contracts/
@@ -174,7 +175,45 @@ USB 摄像头
 禁止把未经硬件或命令验证的状态写成“已通过”。
 
 
-## 0.6 不可违反的硬约束
+## 0.6 i.MX6ULL P0 传感器/执行器引脚分配（唯一事实源）
+
+P0 范围：门磁、PIR、火焰、MQ-2 四路本地安全输入 + 蜂鸣器、RGB 两路本地报警输出。
+
+设计前提：本项目摄像头走 **USB（/dev/video1 UVC）**，CSI 闲置，因此 J5 的 `CSI_DATA0..7` 释放为最多 8 路 GPIO。**P0 的 8 路信号全部走 J5 直连 GPIO，整条本地安全闭环不依赖 I2C；PCA9685 继续专供舵机 CH0/CH1。** P1/P2（继电器、风扇、温湿度、MPU6050）才使用 PCA9685 空闲通道与 I2C 总线。
+
+| 功能 | 方向 | J5 物理脚 | 原理图网络 | Linux 节点 | 状态 | 关键备注 |
+|---|---|---|---|---|---|---|
+| PIR | 输入 | D0 | CSI_DATA0 | gpio117 | 已验证 0/1 | 仅测到 raw=0，需人工触发取 raw=1 证据 |
+| 门磁 door | 输入 | D1 | CSI_DATA1 | gpio118 | 待验 | 干簧管/磁簧，passive 触点，3.3V 上拉到 GPIO，**无需分压** |
+| 火焰 flame DO | 输入 | D2 | CSI_DATA2 | gpio119 | 待验 | **先按 3.3V 供电**，DO 即 3.3V 逻辑，免分压；若必须 5V 供电则分压 |
+| MQ-2 DO | 输入 | D3 | CSI_DATA3 | gpio120 | 待验 | 加热丝需 5V，DO 为 5V 逻辑，**必须分压**（R1=10k 上、R2=20k 下，5V→3.3V） |
+| RGB-R | 输出 | D4 | CSI_DATA4 | gpio121 | 待验 | LED 经 220–330Ω 限流；若 D 线不可用则退到 PCA9685 CH2 |
+| 蜂鸣器 buzzer | 输出 | D5 | CSI_DATA5 | gpio122 | 待验 | **必须直连 GPIO + NPN 三极管（如 S8050）驱动**，目的：I2C/PCA9685 失效时仍能鸣响 |
+| RGB-G | 输出 | D6 | CSI_DATA6 | gpio123 | 待验 | 同 RGB-R；退路 PCA9685 CH3 |
+| RGB-B | 输出 | D7 | CSI_DATA7 | gpio124 | 待验 | 同 RGB-R；退路 PCA9685 CH4 |
+| 舵机 pan/tilt | 输出 | I2C(7/8) | I2C1 | /dev/i2c-0 0x40 CH0/CH1 | 已用 | 保持现状，P0 不动 |
+
+> **说明**：P0 模块都在外置面包板/洞洞板上；"直连 GPIO"表示信号线从外置面包板/洞洞板经 J5 接到 i.MX GPIO，不表示模块插在 i.MX 核心板上。P0 本地安全闭环不依赖 I2C / OPi5 / Flask / 网络。
+
+> **[CLAUDE_CODE_TODO | VERIFY]** 确认 J5 D1–D7（gpio118–124）在默认 dtb 下可作 GPIO 读写
+> - 为何 GPT 给不了：默认 `100ask_imx6ull-14x14.dtb` 中这些脚的 pinmux 是否为 GPIO 需板端确认；仅 gpio117(D0) 实测过。
+> - 期望产物/操作：板端 `gpioinfo` 查看 D1–D7 对应 line 是否 `unused`；逐脚 `gpioget`/`gpioset` 验证电平变化；若被 CSI 占用，则改 dtb 释放或把 RGB 退到 PCA9685。
+> - 回填位置：本表"状态"列；docs/03 第 3.3；tests/imx6ull。
+> - 验收：每路能读到（输入）或控制（输出）明确电平变化。
+
+> **[CLAUDE_CODE_TODO | VERIFY]** 确认 5V 模块电平安全
+> - 为何 GPT 给不了：i.MX6ULL GPIO 为 3.3V 且不耐 5V，模块实际供电与 DO 摆幅需实测。
+> - 期望产物/操作：MQ-2 必接 10k/20k 分压；火焰/PIR 优先 3.3V 供电免分压；用万用表确认进 GPIO 的电平 ≤3.3V 再连线。
+> - 回填位置：docs/03 第 3.3；tests/imx6ull。
+> - 验收：所有进 GPIO 的信号实测 ≤3.3V。
+
+安全边界（与现有硬约束并列）：
+- P0 输入全部直连 GPIO，确保 I2C / OPi5 / Flask / 网络全断时，本地仍能 `flame=1 或 mq2=1 → 直接 ALARM → 驱动蜂鸣器/RGB`。
+- 蜂鸣器走直连 GPIO，不经 PCA9685，保证 I2C 失效时报警仍可发声。
+- 执行器仍只由 i.MX6ULL 本地状态机驱动；AI/OPi5/Flask 不参与，`control_allowed` 保持 `false`。
+- 继电器、风扇、水泵、温湿度、MPU6050 属于 P1/P2，不进入 Task10。
+
+## 0.7 不可违反的硬约束
 
 1. 本地安全闭环优先；无网络、无摄像头、无 AI 时，i.MX6ULL 仍要能依据本地传感器进入安全状态。
 2. AI / Dashboard / 上层服务只允许返回 `risk_hint`、解释和展示信息，不直接控制蜂鸣器、RGB、继电器、风扇、水泵。

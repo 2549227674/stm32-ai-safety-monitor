@@ -87,7 +87,12 @@
 | ALARM | 1 | R | 按规则 | 按规则 | 按规则 |
 | FAULT | 间歇 | 紫/黄 | 安全态 | 0 | 0 |
 
-真实执行器是否接入、GPIO 与负载能力必须由 Task03 实测决定。
+P0 起**真实驱动蜂鸣器（gpio122 + 三极管）与 RGB（gpio121/123/124）**：NORMAL=绿、VERIFY=蓝、ALARM=红+蜂鸣器响、FAULT=紫/黄间歇。继电器/风扇/水泵仍为 P1/P2，未真实驱动。AI/OPi5/Flask 不控制执行器，`control_allowed=false`。
+
+> **[CLAUDE_CODE_TODO | MEASURE]** 标定 P0 误报与阈值
+> - 期望产物/操作：分别记录门开关、人体触发、打火机近火焰、烟雾近 MQ-2 四类场景的 sensors 与 risk_score；按误报调整加分。
+> - 回填位置：docs/06 第 6.4；tests/imx6ull。
+> - 验收：至少记录 NORMAL/VERIFY/ALARM 三类场景。
 
 ## 6.8 防误报策略
 
@@ -139,10 +144,23 @@ Task07-C 已落地 C 版主控程序 `edge/imx6ull-controller/src/imx_safetyd.c`
 - AI 正常时按 `risk_score = min(10, 3 + risk_hint)` 融合；OPi5 不可达时生成干净 fallback `ai_result.ok=false/mode=offline/control_allowed=false`，`risk_score=4`。
 - Flask 不可达时写入 `/opt/edge-ai-safety-monitor/spool/imx-safetyd/pending/`，`flush` 模式恢复后移动到 `sent/`。
 - 每次运行写 `/opt/edge-ai-safety-monitor/run/imx_safetyd_status.json` 和 `/opt/edge-ai-safety-monitor/run/imx_safetyd.log`。
-- 本轮不真实驱动继电器、蜂鸣器、风扇、水泵；`actuators` 仍是安全态事件字段，AI/OPi5/Flask 不控制执行器。
+- 当前 door/flame/mq2 固定为 0，actuators 仍是安全态事件字段；**Task10 将替换为真实 GPIO 读取与真实驱动**。
 - 在当前非 systemd 镜像上，可由 BusyBox/SysV `init.d/S99imx-safetyd` 管理进程；`/etc/init.d/rcS` 会遍历 `S??*`，因此具备开机自启条件，但需板端本地 `imx-safetyd.env`。
 
 证据见 `tests/integration/2026-06-07_imx_safetyd_c.md`。
+
+## 6.12 Task10 P0 传感器/执行器真实化（待执行）
+
+Task10 将把 imx_safetyd 中 door/flame/mq2 的固定 0 替换为真实 GPIO 读取，并真实驱动蜂鸣器（gpio122）与 RGB（gpio121/123/124）。引脚分配以 `CANONICAL_DECISIONS.md` 第 0.6 节为唯一事实源。
+
+关键规则：
+- `flame=1 或 mq2=1 → 任意状态直接 ALARM`，该判定纯本地、不经网络/AI。
+- `risk_score` 仍为 0–10 量纲：door=+2、pir=+2、flame=+6、mq2=+5，`risk_score = clamp(local_score + ai_adjust, 0, 10)`。
+- 蜂鸣器必须直连 GPIO + 三极管驱动，不经 PCA9685。
+- 继电器/风扇/水泵仍为 P1/P2，不在 Task10 范围。
+- AI/OPi5/Flask 不控制执行器，`control_allowed` 保持 `false`。
+
+详见 `CLAUDE_CODE_TASK_10_imx6ull_sensor_actuator_p0.md`。
 
 ## 6.12 Task07-D 后续原生化增强（可选，不阻塞 MVP）
 

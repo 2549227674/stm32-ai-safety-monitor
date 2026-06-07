@@ -31,7 +31,9 @@
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
 |---|---|---|---|
-| `AGENTS.md:83` | 逐项验证新硬件状态表 | 按 Task02–08 执行真实命令和硬件测试，逐项把“待验证”改为“已验证/失败/绕过”。 | 每项都有 tests 记录、命令输出或照片/波形证据。 |
+| `AGENTS.md:83` | 逐项验证新硬件状态表 | 按 Task02–10 执行真实命令和硬件测试，逐项把”待验证”改为”已验证/失败/绕过”。 | 每项都有 tests 记录、命令输出或照片/波形证据。 |
+| `CANONICAL_DECISIONS.md` | 确认 J5 D1–D7（gpio118–124）在默认 dtb 下可作 GPIO 读写 | 板端 `gpioinfo` 查看 D1–D7 对应 line 是否 `unused`；逐脚 `gpioget`/`gpioset` 验证电平变化。 | 每路能读到（输入）或控制（输出）明确电平变化。 |
+| `CANONICAL_DECISIONS.md` | 确认 5V 模块电平安全 | MQ-2 必接 10k/20k 分压；火焰/PIR 优先 3.3V 供电免分压；万用表确认进 GPIO 电平 ≤3.3V。 | 所有进 GPIO 的信号实测 ≤3.3V。 |
 | `CLAUDE_CODE_TASK_01_repo_migration_legacy_archive.md:11` | 确认当前仓库工作区是否干净 | 运行 `git status` 并决定是否先提交/暂存/备份。 | 工作区无意外未提交修改，或已明确保留。 |
 | `common/contracts/README.md:19` | 从 docs/07 生成或同步 JSON Schema | Task06/07 后根据实际 API 生成 `event_v1.schema.json` 和 `infer_v1.schema.json`。 | schema 能验证测试 payload。 |
 | `docs/00_README.md:72` | 迁移分支落地后核对 docs/00 链接 | 解压本包到迁移分支后，运行 `find docs -maxdepth 2 -type f` 并核对文件名。 | 所有链接路径存在，无 `docs/15`。 |
@@ -60,6 +62,8 @@
 |---|---|---|---|
 | `VERTICAL_SLICE_INTEGRATION_CHECKLIST.md:53` | 填写垂直切片实际验收结果 | Task07 执行后逐项打勾，补充命令输出和截图路径。 | 所有 MVP 项通过或有明确回退说明。 |
 | `docs/03_硬件系统设计与供电安全_iMX6ULL_OPi5.md:26` | 实测各路电源电压与空载/负载电流 | 用万用表测量 OPi5、i.MX6ULL、舵机电源、负载电源的电压；记录空载与典型工作电流。 | 测试记录包含电压、电流、负载状态、是否掉压。 |
+| `docs/03` | 补 3.7 供电预算 P0 行 | 万用表测 5V（MQ-2 加热 + 蜂鸣器）/3.3V（GPIO 上拉、RGB、PIR/火焰）两路电流。 | 表中写入实测电压/电流。 |
+| `docs/06` | 标定 P0 误报与阈值 | 记录门开关、人体触发、打火机近火焰、烟雾近 MQ-2 四类场景的 sensors 与 risk_score。 | 至少记录 NORMAL/VERIFY/ALARM 三类场景。 |
 | `docs/04_软件架构与模块划分_Linux边缘控制版.md:40` | 实测 i.MX6ULL 控制循环抖动和端到端延迟 | 在 Task07 中记录采样、抓拍、AI 请求、上报的时间戳，计算 min/avg/max。 | 测试记录包含至少 20 次循环/事件延迟统计。 |
 | `docs/06_状态机与联动机制_Linux实现版.md:52` | 根据实测误报率调整 risk_score 阈值 | 联调阶段记录不同场景 risk_score 与误报，调整加分表。 | 至少记录 NORMAL/WARN/ALARM 三类场景，并说明阈值调整。 |
 | `docs/07_端边HTTP_JSON_Contract.md:149` | 标定 HTTP 超时与端到端延迟 | Task07 中记录 capture/ai/post 总耗时，按结果调整超时。 | 至少 20 次请求统计，并给出最终超时参数。 |

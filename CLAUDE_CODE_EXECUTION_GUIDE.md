@@ -56,6 +56,7 @@ grep -RIn "\[ASSUMPTION" .
 | 6 | `CLAUDE_CODE_TASK_06_backend_contract_extension.md` | Flask 扩展 | Dashboard 显示 vision/AI/image 字段且兼容旧事件 |
 | 7 | `CLAUDE_CODE_TASK_07_end_edge_vertical_slice.md` | i.MX→OPi5→Flask 完整链路 | Dashboard 显示一条完整端边事件 |
 | 8 | `CLAUDE_CODE_TASK_08_pan_tilt巡检演示.md` | 云台扫描演示 | pan/tilt 角度、图片、AI 结果联动显示 |
+| 9 | `CLAUDE_CODE_TASK_10_imx6ull_sensor_actuator_p0.md` | P0 传感器/执行器真实化 | 门磁/火焰/MQ-2/PIR 真实 GPIO + 蜂鸣器/RGB 真实驱动；断网断 AI 仍本地 ALARM |
 
 未通过当前 Task，不进入下一 Task。
 

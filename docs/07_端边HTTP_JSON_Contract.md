@@ -182,3 +182,25 @@ MVP 可选两种顺序：
 ## 7.9 版本号与兼容策略
 
 `contract_version` 初始为 `1.0`。字段只能向后兼容新增，不允许删除旧字段。Flask 扩展时优先保留 `raw_json`，避免 DB schema 变更导致旧事件不可读。
+
+## 7.10 P0 传感器/执行器字段使用说明
+
+P0 阶段使用既有字段，不新增、不改库：
+
+| 字段路径 | P0 用途 |
+|---|---|
+| `sensors.door` | 门磁 gpio118，0/1 |
+| `sensors.pir` | PIR gpio117，0/1 |
+| `sensors.flame` | 火焰 gpio119，0/1 |
+| `sensors.mq2` | MQ-2 gpio120，0/1 |
+| `actuators.buzzer` | 蜂鸣器 gpio122，0/1 |
+| `actuators.rgb_r` | 红色 LED gpio121，0/1 |
+| `actuators.rgb_g` | 绿色 LED gpio123，0/1 |
+| `actuators.rgb_b` | 蓝色 LED gpio124，0/1 |
+
+以下字段保留给 P1/P2，P0 不使用、不新增：
+- `temp` / `humidity`：温湿度传感器（P1）
+- `keys`：调试按键（P1）
+- `actuators.relay` / `actuators.fan` / `actuators.pump`：继电器/风扇/水泵（P1/P2）
+
+`control_allowed` 仍必须为 `false`。AI/OPi5/Flask 不参与执行器控制。

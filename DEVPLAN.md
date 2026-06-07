@@ -17,6 +17,7 @@
 | P6 | Day 9–10 | Task07 端边垂直切片 | 完整事件、图片、AI 结果 | Task07-A/B/C/C2 已通过：C 版 imx_safetyd 支持 once/loop/flush、实时 GPIO、降级/spool、init.d 启动管理 |
 | P7 | Day 10–11 | Task08 云台巡检 | pan/tilt 扫描日志、视频 | Task08-A 已通过：三点扫描 pan 60/90/120° + mock AI + Flask 上报 |
 | P8 | Day 12–14 | 报告/PPT/录屏 | 报告、PPT、上报表、演示视频 | 可答辩、可回放 |
+| P0-real | Day 12–14 | Task10 P0 传感器/执行器真实化 | 真实 GPIO 输入/输出、本地 ALARM 证据 | 10-A→10-E 垂直切片逐个通过；断网/断 AI 仍本地 ALARM |
 
 ## 3. MVP 锁定范围
 
@@ -85,6 +86,8 @@ Task07-D 为工程化增强项，不作为当前 MVP 验收阻塞项。当前 MV
   - 目标：将当前单文件 imx_safetyd.c 拆分为 gpio、camera、http、event、spool、fsm、main 等模块。
   - 收益：结构更清晰，便于报告展示和后续维护。
   - 风险：拆分可能引入集成问题，必须保持 Task07-C 已通过行为不退化。
+
+Task10 P0 传感器/执行器真实化：待执行。门磁/火焰/MQ-2/PIR 四路输入读真实 GPIO，蜂鸣器/RGB 两路输出真实驱动。按 10-A→10-E 垂直切片逐个验证，不改 OPi5/AI，不改 Flask schema。核心价值：把 door/flame/mq2 固定 0、执行器仅事件字段的 caveat 逐步替换为真实本地安全闭环证据。引脚以 `CANONICAL_DECISIONS.md` 0.6 为准。
 
 Task06 Flask 契约扩展已通过：后端保持旧 `/api/events` 兼容，不修改 DB schema，通过 `raw_json` 透出 `contract_version/vision/ai_result/image_url/latency_ms`；Dashboard 新增 AI/视觉展示区，可展示 AI 摘要、`risk_hint`、objects、faces、image URL/图片预览、latency、pan/tilt 和 `control_allowed=false`。旧事件缺少 AI 字段时 API 返回 `null`，前端判空显示”暂无 AI/视觉结果”。
 
