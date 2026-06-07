@@ -21,6 +21,8 @@
 #define DEFAULT_GPIO_ACTIVE_HIGH 1
 #define DEFAULT_GPIO_FLAME 119
 #define DEFAULT_GPIO_FLAME_ACTIVE_HIGH 1
+#define DEFAULT_GPIO_MQ2 120
+#define DEFAULT_GPIO_MQ2_ACTIVE_HIGH 1
 #define DEFAULT_CAPTURE_DEVICE "/dev/video1"
 #define DEFAULT_BASE_DIR "/opt/edge-ai-safety-monitor"
 #define DEFAULT_INTERVAL_SEC 2
@@ -37,6 +39,8 @@ typedef struct {
     int gpio_active_high;
     int gpio_flame;
     int gpio_flame_active_high;
+    int gpio_mq2;
+    int gpio_mq2_active_high;
     char capture_device[64];
     char base_dir[256];
     int post_normal;
@@ -52,6 +56,7 @@ typedef struct {
     int flame;
     int flame_raw;
     int mq2;
+    int mq2_raw;
 } SensorState;
 
 typedef struct {
@@ -166,6 +171,8 @@ static void usage(const char *prog) {
         "  --gpio-active-high 0|1      default/env GPIO_ACTIVE_HIGH\n"
         "  --gpio-flame N              default/env GPIO_FLAME\n"
         "  --gpio-flame-active-high 0|1 default/env GPIO_FLAME_ACTIVE_HIGH\n"
+        "  --gpio-mq2 N                default/env GPIO_MQ2\n"
+        "  --gpio-mq2-active-high 0|1  default/env GPIO_MQ2_ACTIVE_HIGH\n"
         "  --capture-device PATH       default/env CAPTURE_DEVICE\n"
         "  --base-dir PATH             default/env BASE_DIR\n"
         "  --post-normal 0|1           default/env POST_NORMAL\n"
@@ -230,6 +237,8 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->gpio_active_high = set_from_env_int("GPIO_ACTIVE_HIGH", DEFAULT_GPIO_ACTIVE_HIGH);
     cfg->gpio_flame = set_from_env_int("GPIO_FLAME", DEFAULT_GPIO_FLAME);
     cfg->gpio_flame_active_high = set_from_env_int("GPIO_FLAME_ACTIVE_HIGH", DEFAULT_GPIO_FLAME_ACTIVE_HIGH);
+    cfg->gpio_mq2 = set_from_env_int("GPIO_MQ2", DEFAULT_GPIO_MQ2);
+    cfg->gpio_mq2_active_high = set_from_env_int("GPIO_MQ2_ACTIVE_HIGH", DEFAULT_GPIO_MQ2_ACTIVE_HIGH);
     cfg->post_normal = set_from_env_int("POST_NORMAL", 0);
     cfg->force_verify = set_from_env_int("FORCE_VERIFY", 0);
     cfg->interval_sec = set_from_env_int("INTERVAL_SEC", DEFAULT_INTERVAL_SEC);
@@ -266,6 +275,16 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
                 fprintf(stderr, "--gpio-flame-active-high requires 0|1\n");
                 return -1;
             }
+        } else if (strcmp(argv[i], "--gpio-mq2") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_mq2) != 0) {
+                fprintf(stderr, "--gpio-mq2 requires integer\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-mq2-active-high") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_mq2_active_high) != 0) {
+                fprintf(stderr, "--gpio-mq2-active-high requires 0|1\n");
+                return -1;
+            }
         } else if (strcmp(argv[i], "--capture-device") == 0 && i + 1 < argc) {
             copy_string(cfg->capture_device, sizeof(cfg->capture_device), argv[++i]);
         } else if (strcmp(argv[i], "--base-dir") == 0 && i + 1 < argc) {
@@ -298,6 +317,7 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     }
     if (cfg->gpio_pir < 0 || (cfg->gpio_active_high != 0 && cfg->gpio_active_high != 1) ||
         cfg->gpio_flame < 0 || (cfg->gpio_flame_active_high != 0 && cfg->gpio_flame_active_high != 1) ||
+        cfg->gpio_mq2 < 0 || (cfg->gpio_mq2_active_high != 0 && cfg->gpio_mq2_active_high != 1) ||
         (cfg->post_normal != 0 && cfg->post_normal != 1) ||
         (cfg->force_verify != 0 && cfg->force_verify != 1) ||
         cfg->interval_sec < 1 || cfg->interval_sec > 3600) {
@@ -491,6 +511,7 @@ static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *
     sensors->flame = 0;
     sensors->flame_raw = -1;
     sensors->mq2 = 0;
+    sensors->mq2_raw = -1;
     sensors->raw_value = -1;
     sensors->pir = 0;
 
@@ -524,6 +545,20 @@ static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *
         }
     }
 
+    /* MQ-2 */
+    if (ensure_gpio_export(cfg->gpio_mq2) == 0) {
+        sensors->mq2_raw = read_gpio_value(cfg->gpio_mq2);
+    }
+
+    if (sensors->mq2_raw == 0 || sensors->mq2_raw == 1) {
+        sensors->mq2 = cfg->gpio_mq2_active_high ? sensors->mq2_raw : !sensors->mq2_raw;
+    } else {
+        sensors->mq2 = 0;
+        if (ctx->last_error[0] == '\0') {
+            copy_string(ctx->last_error, sizeof(ctx->last_error), "mq2_read_failed");
+        }
+    }
+
     ctx->gpio_ms = (int)(now_ms() - t0);
 }
 
@@ -531,16 +566,19 @@ static void compute_state(const AppConfig *cfg, const SensorState *sensors, Even
     (void)cfg;
     int local_score = 0;
 
-    /* Strong trigger: flame=1 → ALARM directly, independent of AI/network */
+    /* Strong trigger: flame=1 or mq2=1 → ALARM directly, independent of AI/network */
     if (sensors->flame) {
         local_score += 6;
+    }
+    if (sensors->mq2) {
+        local_score += 5;
     }
     if (sensors->pir) {
         local_score += 2;
     }
     /* door skipped for now (Task10-A deferred) */
 
-    if (sensors->flame) {
+    if (sensors->flame || sensors->mq2) {
         copy_string(ctx->state, sizeof(ctx->state), "ALARM");
         ctx->risk_score_before_ai = local_score;
         ctx->risk_score = local_score;
@@ -833,7 +871,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  \"latency_ms\": {\"gpio\": %d, \"capture\": %d, \"ai\": %d, \"post\": %d, \"total\": %d},\n"
             "  \"diagnostics\": {\n"
             "    \"program\": \"imx_safetyd_c\",\n"
-            "    \"gpio\": {\"pir_gpio\": %d, \"raw_value\": %d, \"active_high\": %s, \"flame_gpio\": %d, \"flame_raw\": %d, \"flame_active_high\": %s},\n"
+            "    \"gpio\": {\"pir_gpio\": %d, \"raw_value\": %d, \"active_high\": %s, \"flame_gpio\": %d, \"flame_raw\": %d, \"flame_active_high\": %s, \"mq2_gpio\": %d, \"mq2_raw\": %d, \"mq2_active_high\": %s},\n"
             "    \"ai_status\": \"%s\",\n"
             "    \"backend_status\": \"%s\",\n"
             "    \"spool_path\": %s,\n"
@@ -845,6 +883,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             ctx->capture_ok ? "true" : "false", ai_json, ctx->gpio_ms, ctx->capture_ms, ctx->ai_ms,
             post_ms, total_ms, cfg->gpio_pir, sensors->raw_value, cfg->gpio_active_high ? "true" : "false",
             cfg->gpio_flame, sensors->flame_raw, cfg->gpio_flame_active_high ? "true" : "false",
+            cfg->gpio_mq2, sensors->mq2_raw, cfg->gpio_mq2_active_high ? "true" : "false",
             ctx->ai_status, backend_status, spool_path ? spool_path : "null", cfg->force_verify ? "true" : "false");
     fclose(fp);
 }
@@ -896,11 +935,12 @@ static void write_status_json(const AppPaths *paths, const EventContext *ctx, co
             "  \"last_state\": \"%s\",\n"
             "  \"last_pir\": %d,\n"
             "  \"last_flame\": %d,\n"
+            "  \"last_mq2\": %d,\n"
             "  \"last_risk_score\": %d,\n"
             "  \"last_ai_status\": \"%s\",\n"
             "  \"last_backend_status\": \"%s\",\n"
             "  \"last_error\": ",
-            ctx->seq, ctx->state[0] ? ctx->state : "NONE", sensors ? sensors->pir : 0, sensors ? sensors->flame : 0, ctx->risk_score,
+            ctx->seq, ctx->state[0] ? ctx->state : "NONE", sensors ? sensors->pir : 0, sensors ? sensors->flame : 0, sensors ? sensors->mq2 : 0, ctx->risk_score,
             ctx->ai_status[0] ? ctx->ai_status : "skipped",
             ctx->backend_status[0] ? ctx->backend_status : "none");
     if (ctx->last_error[0]) {
@@ -928,9 +968,10 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
 
     read_gpio(cfg, &sensors, &ctx);
     compute_state(cfg, &sensors, &ctx);
-    log_msg("[gpio] gpio%d raw=%d pir=%d active_high=%d force_verify=%d | gpio%d flame_raw=%d flame=%d flame_ah=%d",
-            cfg->gpio_pir, sensors.raw_value, sensors.pir, cfg->gpio_active_high, cfg->force_verify,
-            cfg->gpio_flame, sensors.flame_raw, sensors.flame, cfg->gpio_flame_active_high);
+    log_msg("[gpio] gpio%d raw=%d pir=%d | gpio%d flame_raw=%d flame=%d | gpio%d mq2_raw=%d mq2=%d",
+            cfg->gpio_pir, sensors.raw_value, sensors.pir,
+            cfg->gpio_flame, sensors.flame_raw, sensors.flame,
+            cfg->gpio_mq2, sensors.mq2_raw, sensors.mq2);
     log_msg("[state] %s risk_before_ai=%d need_snap=%s",
             ctx.state, ctx.risk_score_before_ai, ctx.need_snap ? "true" : "false");
 

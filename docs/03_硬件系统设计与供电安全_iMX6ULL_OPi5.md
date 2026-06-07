@@ -41,7 +41,7 @@
 | door | gpio118 (J5 D1) | `<TODO:VERIFY>` | 3.3V 上拉，无需分压 | 待验 |
 | pir | gpio117 (J5 D0) | 高有效 | 模块自带 | 已验证读到 0/1 |
 | flame | gpio119 (J5 D2) | 高有效（raw=1 有火焰） | 3.3V 供电免分压 | 已验证（裸读稳定，flame=1→ALARM） |
-| mq2 | gpio120 (J5 D3) | `<TODO:VERIFY>` | **必须 10k/20k 分压**（MQ-2 DO 为 5V 逻辑，不耐 5V） | 待验 |
+| mq2 | gpio120 (J5 D3) | 高有效（raw=1 触发） | 本轮课设短时方案：5V + DO 直连；**长期建议分压/电平转换** | 已验证（课设短时） |
 
 > **[CLAUDE_CODE_TODO | VERIFY]** 确认 J5 D1–D7 在默认 dtb 下可作 GPIO 读写
 > - 为何 GPT 给不了：默认 dtb 中这些脚的 pinmux 是否为 GPIO 需板端确认；仅 gpio117(D0) 实测过。
