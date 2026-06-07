@@ -11,7 +11,7 @@
 | P0 | Day 1 | Task01 仓库迁移与 legacy 归档 | 新目录、legacy README、迁移决策记录 | 已完成：旧代码归档，新主线目录存在 |
 | P1 | Day 1–2 | Task02 WSL/i.MX SDK/SSH | hello、build/deploy 脚本 | 已完成：板端运行 hello |
 | P2 | Day 3–4 | Task03 GPIO/I2C/PWM/云台 | 单模块测试程序、测试记录 | GPIO 输入、I2C/PCA9685、MG90S 云台至少具备真实证据；MOS 作为扩展项保留 |
-| P3 | Day 5 | Task04 V4L2 抓拍 | `v4l2_capture`、图片、格式记录 | i.MX 生成可打开图片 |
+| P3 | Day 5 | Task04 V4L2 抓拍 | `v4l2_capture`、图片、格式记录 | 已通过：i.MX 生成可打开 JPEG 图片（640x480, MJPG, v4l2-ctl） |
 | P4 | Day 6–7 | Task05 OPi5 AI 服务 | mock/RKNN 服务 | curl 上传图像返回 AI JSON |
 | P5 | Day 8 | Task06 Flask 扩展 | DB 兼容、Dashboard AI 区域 | 新旧事件均可显示 |
 | P6 | Day 9–10 | Task07 端边垂直切片 | 完整事件、图片、AI 结果 | Dashboard 可演示 |

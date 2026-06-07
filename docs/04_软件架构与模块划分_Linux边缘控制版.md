@@ -28,7 +28,7 @@ edge/imx6ull-controller/        edge/opi5-ai/               server/backend/
 | `gpio_input` | 读取门磁/PIR/火焰/按键 | 20–100ms |
 | `pca9685_servo` | I2C 控制舵机 PWM | 事件触发或巡检周期 |
 | `mos_output` | 控制低压负载 | 状态机输出 |
-| `v4l2_capture` | 抓 JPEG 静帧 | `need_snap` 或巡检角度 |
+| `v4l2_capture` | 抓 JPEG 静帧 | `need_snap` 或巡检角度。Task04 已验证：v4l2-ctl 抓取 /dev/video1 MJPG 640x480 成功（UVC 1.00, 0bdc:8088） |
 | `safety_fsm` | 计算 `state/risk_score` | 50–100ms |
 | `ai_client` | POST 图片到 OPi5 | 事件触发，超时降级 |
 | `event_client` | POST 事件到 Flask | 事件触发或定时 |
