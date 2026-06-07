@@ -23,6 +23,14 @@
 #define DEFAULT_GPIO_FLAME_ACTIVE_HIGH 1
 #define DEFAULT_GPIO_MQ2 120
 #define DEFAULT_GPIO_MQ2_ACTIVE_HIGH 1
+#define DEFAULT_GPIO_RGB_R 121
+#define DEFAULT_GPIO_RGB_R_ACTIVE_HIGH 1
+#define DEFAULT_GPIO_BUZZER 122
+#define DEFAULT_GPIO_BUZZER_ACTIVE_HIGH 0
+#define DEFAULT_GPIO_RGB_G 123
+#define DEFAULT_GPIO_RGB_G_ACTIVE_HIGH 1
+#define DEFAULT_GPIO_RGB_B 124
+#define DEFAULT_GPIO_RGB_B_ACTIVE_HIGH 1
 #define DEFAULT_CAPTURE_DEVICE "/dev/video1"
 #define DEFAULT_BASE_DIR "/opt/edge-ai-safety-monitor"
 #define DEFAULT_INTERVAL_SEC 2
@@ -41,6 +49,14 @@ typedef struct {
     int gpio_flame_active_high;
     int gpio_mq2;
     int gpio_mq2_active_high;
+    int gpio_rgb_r;
+    int gpio_rgb_r_active_high;
+    int gpio_buzzer;
+    int gpio_buzzer_active_high;
+    int gpio_rgb_g;
+    int gpio_rgb_g_active_high;
+    int gpio_rgb_b;
+    int gpio_rgb_b_active_high;
     char capture_device[64];
     char base_dir[256];
     int post_normal;
@@ -97,10 +113,17 @@ typedef struct {
 
 static volatile sig_atomic_t keep_running = 1;
 static char g_log_file[512];
+static AppConfig g_cfg;
+static volatile sig_atomic_t g_cfg_ready = 0;
+
+static void all_off(const AppConfig *cfg);
 
 static void handle_signal(int signum) {
     (void)signum;
     keep_running = 0;
+    if (g_cfg_ready) {
+        all_off(&g_cfg);
+    }
 }
 
 static long long now_ms(void) {
@@ -173,6 +196,14 @@ static void usage(const char *prog) {
         "  --gpio-flame-active-high 0|1 default/env GPIO_FLAME_ACTIVE_HIGH\n"
         "  --gpio-mq2 N                default/env GPIO_MQ2\n"
         "  --gpio-mq2-active-high 0|1  default/env GPIO_MQ2_ACTIVE_HIGH\n"
+        "  --gpio-rgb-r N              default/env GPIO_RGB_R\n"
+        "  --gpio-rgb-r-active-high 0|1 default/env GPIO_RGB_R_ACTIVE_HIGH\n"
+        "  --gpio-buzzer N             default/env GPIO_BUZZER\n"
+        "  --gpio-buzzer-active-high 0|1 default/env GPIO_BUZZER_ACTIVE_HIGH\n"
+        "  --gpio-rgb-g N              default/env GPIO_RGB_G\n"
+        "  --gpio-rgb-g-active-high 0|1 default/env GPIO_RGB_G_ACTIVE_HIGH\n"
+        "  --gpio-rgb-b N              default/env GPIO_RGB_B\n"
+        "  --gpio-rgb-b-active-high 0|1 default/env GPIO_RGB_B_ACTIVE_HIGH\n"
         "  --capture-device PATH       default/env CAPTURE_DEVICE\n"
         "  --base-dir PATH             default/env BASE_DIR\n"
         "  --post-normal 0|1           default/env POST_NORMAL\n"
@@ -239,6 +270,14 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->gpio_flame_active_high = set_from_env_int("GPIO_FLAME_ACTIVE_HIGH", DEFAULT_GPIO_FLAME_ACTIVE_HIGH);
     cfg->gpio_mq2 = set_from_env_int("GPIO_MQ2", DEFAULT_GPIO_MQ2);
     cfg->gpio_mq2_active_high = set_from_env_int("GPIO_MQ2_ACTIVE_HIGH", DEFAULT_GPIO_MQ2_ACTIVE_HIGH);
+    cfg->gpio_rgb_r = set_from_env_int("GPIO_RGB_R", DEFAULT_GPIO_RGB_R);
+    cfg->gpio_rgb_r_active_high = set_from_env_int("GPIO_RGB_R_ACTIVE_HIGH", DEFAULT_GPIO_RGB_R_ACTIVE_HIGH);
+    cfg->gpio_buzzer = set_from_env_int("GPIO_BUZZER", DEFAULT_GPIO_BUZZER);
+    cfg->gpio_buzzer_active_high = set_from_env_int("GPIO_BUZZER_ACTIVE_HIGH", DEFAULT_GPIO_BUZZER_ACTIVE_HIGH);
+    cfg->gpio_rgb_g = set_from_env_int("GPIO_RGB_G", DEFAULT_GPIO_RGB_G);
+    cfg->gpio_rgb_g_active_high = set_from_env_int("GPIO_RGB_G_ACTIVE_HIGH", DEFAULT_GPIO_RGB_G_ACTIVE_HIGH);
+    cfg->gpio_rgb_b = set_from_env_int("GPIO_RGB_B", DEFAULT_GPIO_RGB_B);
+    cfg->gpio_rgb_b_active_high = set_from_env_int("GPIO_RGB_B_ACTIVE_HIGH", DEFAULT_GPIO_RGB_B_ACTIVE_HIGH);
     cfg->post_normal = set_from_env_int("POST_NORMAL", 0);
     cfg->force_verify = set_from_env_int("FORCE_VERIFY", 0);
     cfg->interval_sec = set_from_env_int("INTERVAL_SEC", DEFAULT_INTERVAL_SEC);
@@ -285,6 +324,46 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
                 fprintf(stderr, "--gpio-mq2-active-high requires 0|1\n");
                 return -1;
             }
+        } else if (strcmp(argv[i], "--gpio-rgb-r") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_rgb_r) != 0) {
+                fprintf(stderr, "--gpio-rgb-r requires integer\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-rgb-r-active-high") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_rgb_r_active_high) != 0) {
+                fprintf(stderr, "--gpio-rgb-r-active-high requires 0|1\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-buzzer") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_buzzer) != 0) {
+                fprintf(stderr, "--gpio-buzzer requires integer\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-buzzer-active-high") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_buzzer_active_high) != 0) {
+                fprintf(stderr, "--gpio-buzzer-active-high requires 0|1\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-rgb-g") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_rgb_g) != 0) {
+                fprintf(stderr, "--gpio-rgb-g requires integer\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-rgb-g-active-high") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_rgb_g_active_high) != 0) {
+                fprintf(stderr, "--gpio-rgb-g-active-high requires 0|1\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-rgb-b") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_rgb_b) != 0) {
+                fprintf(stderr, "--gpio-rgb-b requires integer\n");
+                return -1;
+            }
+        } else if (strcmp(argv[i], "--gpio-rgb-b-active-high") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->gpio_rgb_b_active_high) != 0) {
+                fprintf(stderr, "--gpio-rgb-b-active-high requires 0|1\n");
+                return -1;
+            }
         } else if (strcmp(argv[i], "--capture-device") == 0 && i + 1 < argc) {
             copy_string(cfg->capture_device, sizeof(cfg->capture_device), argv[++i]);
         } else if (strcmp(argv[i], "--base-dir") == 0 && i + 1 < argc) {
@@ -318,6 +397,10 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     if (cfg->gpio_pir < 0 || (cfg->gpio_active_high != 0 && cfg->gpio_active_high != 1) ||
         cfg->gpio_flame < 0 || (cfg->gpio_flame_active_high != 0 && cfg->gpio_flame_active_high != 1) ||
         cfg->gpio_mq2 < 0 || (cfg->gpio_mq2_active_high != 0 && cfg->gpio_mq2_active_high != 1) ||
+        cfg->gpio_rgb_r < 0 || (cfg->gpio_rgb_r_active_high != 0 && cfg->gpio_rgb_r_active_high != 1) ||
+        cfg->gpio_buzzer < 0 || (cfg->gpio_buzzer_active_high != 0 && cfg->gpio_buzzer_active_high != 1) ||
+        cfg->gpio_rgb_g < 0 || (cfg->gpio_rgb_g_active_high != 0 && cfg->gpio_rgb_g_active_high != 1) ||
+        cfg->gpio_rgb_b < 0 || (cfg->gpio_rgb_b_active_high != 0 && cfg->gpio_rgb_b_active_high != 1) ||
         (cfg->post_normal != 0 && cfg->post_normal != 1) ||
         (cfg->force_verify != 0 && cfg->force_verify != 1) ||
         cfg->interval_sec < 1 || cfg->interval_sec > 3600) {
@@ -503,6 +586,68 @@ static int read_gpio_value(int gpio) {
         return 1;
     }
     return -1;
+}
+
+static int ensure_gpio_export_out(int gpio) {
+    char gpio_dir[256];
+    snprintf(gpio_dir, sizeof(gpio_dir), "/sys/class/gpio/gpio%d", gpio);
+    if (!path_exists("/sys/class/gpio")) {
+        return -1;
+    }
+    if (!path_exists(gpio_dir)) {
+        char num[32];
+        snprintf(num, sizeof(num), "%d", gpio);
+        if (write_gpio_sysfs(gpio, NULL, num) != 0) {
+            return -1;
+        }
+        usleep(100000);
+    }
+    if (path_exists(gpio_dir)) {
+        (void)write_gpio_sysfs(gpio, "direction", "out");
+        return 0;
+    }
+    return -1;
+}
+
+static void write_gpio_output(int gpio, int active_high, int desired_on) {
+    int raw = desired_on ? active_high : !active_high;
+    char val[4];
+    snprintf(val, sizeof(val), "%d", raw ? 1 : 0);
+    if (write_gpio_sysfs(gpio, "value", val) != 0) {
+        log_msg("[output] WARNING: gpio%d write failed", gpio);
+    }
+}
+
+static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
+    int buzzer_on = 0, r_on = 0, g_on = 0, b_on = 0;
+
+    if (strcmp(state, "NORMAL") == 0) {
+        g_on = 1;
+    } else if (strcmp(state, "VERIFY") == 0) {
+        b_on = 1;
+    } else if (strcmp(state, "ALARM") == 0) {
+        r_on = 1;
+        buzzer_on = 1;
+    } else if (strcmp(state, "FAULT") == 0) {
+        r_on = 1;
+        b_on = 1;
+        buzzer_on = 1;
+    }
+
+    write_gpio_output(cfg->gpio_rgb_r, cfg->gpio_rgb_r_active_high, r_on);
+    write_gpio_output(cfg->gpio_buzzer, cfg->gpio_buzzer_active_high, buzzer_on);
+    write_gpio_output(cfg->gpio_rgb_g, cfg->gpio_rgb_g_active_high, g_on);
+    write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, b_on);
+
+    log_msg("[actuators] state=%s buzzer=%d R=%d G=%d B=%d", state, buzzer_on, r_on, g_on, b_on);
+}
+
+static void all_off(const AppConfig *cfg) {
+    write_gpio_output(cfg->gpio_rgb_r, cfg->gpio_rgb_r_active_high, 0);
+    write_gpio_output(cfg->gpio_buzzer, cfg->gpio_buzzer_active_high, 0);
+    write_gpio_output(cfg->gpio_rgb_g, cfg->gpio_rgb_g_active_high, 0);
+    write_gpio_output(cfg->gpio_rgb_b, cfg->gpio_rgb_b_active_high, 0);
+    log_msg("[actuators] all_off");
 }
 
 static void read_gpio(const AppConfig *cfg, SensorState *sensors, EventContext *ctx) {
@@ -845,7 +990,19 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
         ai_json = ai_buf;
     }
 
-    int rgb_b = strcmp(ctx->state, "VERIFY") == 0 ? 1 : 0;
+    int buzzer_out = 0, rgb_r_out = 0, rgb_g_out = 0, rgb_b_out = 0;
+    if (strcmp(ctx->state, "NORMAL") == 0) {
+        rgb_g_out = 1;
+    } else if (strcmp(ctx->state, "VERIFY") == 0) {
+        rgb_b_out = 1;
+    } else if (strcmp(ctx->state, "ALARM") == 0) {
+        rgb_r_out = 1;
+        buzzer_out = 1;
+    } else if (strcmp(ctx->state, "FAULT") == 0) {
+        rgb_r_out = 1;
+        rgb_b_out = 1;
+        buzzer_out = 1;
+    }
     FILE *fp = fopen(out_file, "w");
     if (fp == NULL) {
         return;
@@ -860,7 +1017,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  \"risk_score\": %d,\n"
             "  \"need_snap\": %s,\n"
             "  \"sensors\": {\"door\": %d, \"pir\": %d, \"flame\": %d, \"mq2\": %d},\n"
-            "  \"actuators\": {\"relay\": 0, \"fan\": 0, \"pump\": 0, \"buzzer\": 0, \"rgb_r\": 0, \"rgb_g\": 0, \"rgb_b\": %d},\n"
+            "  \"actuators\": {\"relay\": 0, \"fan\": 0, \"pump\": 0, \"buzzer\": %d, \"rgb_r\": %d, \"rgb_g\": %d, \"rgb_b\": %d},\n"
             "  \"vision\": {\n"
             "    \"frame_id\": %d,\n"
             "    \"image_url\": null,\n"
@@ -879,7 +1036,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  }\n"
             "}\n",
             cfg->device_id, ctx->seq, ctx->state, ctx->risk_score, ctx->need_snap ? "true" : "false",
-            sensors->door, sensors->pir, sensors->flame, sensors->mq2, rgb_b, ctx->seq,
+            sensors->door, sensors->pir, sensors->flame, sensors->mq2, buzzer_out, rgb_r_out, rgb_g_out, rgb_b_out, ctx->seq,
             ctx->capture_ok ? "true" : "false", ai_json, ctx->gpio_ms, ctx->capture_ms, ctx->ai_ms,
             post_ms, total_ms, cfg->gpio_pir, sensors->raw_value, cfg->gpio_active_high ? "true" : "false",
             cfg->gpio_flame, sensors->flame_raw, cfg->gpio_flame_active_high ? "true" : "false",
@@ -974,6 +1131,13 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
             cfg->gpio_mq2, sensors.mq2_raw, sensors.mq2);
     log_msg("[state] %s risk_before_ai=%d need_snap=%s",
             ctx.state, ctx.risk_score_before_ai, ctx.need_snap ? "true" : "false");
+
+    /* Initialize output GPIOs and apply actuators */
+    ensure_gpio_export_out(cfg->gpio_rgb_r);
+    ensure_gpio_export_out(cfg->gpio_buzzer);
+    ensure_gpio_export_out(cfg->gpio_rgb_g);
+    ensure_gpio_export_out(cfg->gpio_rgb_b);
+    apply_actuators_by_state(cfg, ctx.state);
 
     if (strcmp(ctx.state, "NORMAL") == 0 && cfg->post_normal == 0) {
         copy_string(ctx.backend_status, sizeof(ctx.backend_status), "skipped");
@@ -1121,15 +1285,29 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* Make config available to signal handler for all_off cleanup */
+    memcpy(&g_cfg, &cfg, sizeof(AppConfig));
+    g_cfg_ready = 1;
+
+    /* Initialize output GPIOs to OFF at startup */
+    ensure_gpio_export_out(cfg.gpio_rgb_r);
+    ensure_gpio_export_out(cfg.gpio_buzzer);
+    ensure_gpio_export_out(cfg.gpio_rgb_g);
+    ensure_gpio_export_out(cfg.gpio_rgb_b);
+    all_off(&cfg);
+
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
     log_msg("[start] mode=%s device_id=%s base_dir=%s", cfg.mode, cfg.device_id, cfg.base_dir);
+    int rc = 0;
     if (strcmp(cfg.mode, "flush") == 0) {
-        return flush_spool(&cfg, &paths);
+        rc = flush_spool(&cfg, &paths);
+    } else if (strcmp(cfg.mode, "loop") == 0) {
+        rc = run_loop(&cfg, &paths);
+    } else {
+        rc = run_once(&cfg, &paths);
     }
-    if (strcmp(cfg.mode, "loop") == 0) {
-        return run_loop(&cfg, &paths);
-    }
-    return run_once(&cfg, &paths);
+    all_off(&cfg);
+    return rc;
 }

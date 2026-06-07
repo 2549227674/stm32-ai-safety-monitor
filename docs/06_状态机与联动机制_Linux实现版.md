@@ -185,6 +185,18 @@ Task10-C 已验证 MQ-2 DO 接入：
 Task10-D 不重复测试，沿用 Task03-A gpio117 历史实测证据：空闲 raw=0、触发 raw=1。
 - 证据见 `tests/imx6ull/2026-06-06_gpio_input_probe.md`、`tests/imx6ull/2026-06-07_p0_pir_reuse_task03a.md`
 
+### 6.12.4 Task10-E 蜂鸣器 + RGB 输出真实驱动（已通过）
+
+Task10-E 已验证蜂鸣器与 RGB 输出真实驱动：
+- buzzer gpio122：**active low**（0=响，1=不响），经 NPN 三极管驱动
+- RGB-R gpio121：active high（1=亮），红灯模块/接线待查
+- RGB-G gpio123：active high（1=亮），绿灯正常
+- RGB-B gpio124：active high（1=亮），蓝灯正常
+- 状态驱动规则：NORMAL=绿灯、VERIFY=蓝灯、ALARM=红灯+蜂鸣器、FAULT=红蓝+蜂鸣器
+- 程序退出时 all_off 清理，蜂鸣器不会常响
+- `once` 模式下 NORMAL 场景完成太快（<400ms），需用 loop 模式观察灯色
+- 证据见 `tests/imx6ull/2026-06-07_p0_buzzer_rgb_outputs.md`
+
 ## 6.12 Task07-D 后续原生化增强（可选，不阻塞 MVP）
 
 Task07-C 当前已实现 C 版 imx_safetyd，支持 once/loop/flush、真实 gpio117 空闲读取、NORMAL/VERIFY、OPi5 offline fallback、Flask spool/flush。
