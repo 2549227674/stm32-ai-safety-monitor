@@ -169,7 +169,17 @@ grep -RIn "\[CLAUDE_CODE_TODO" .
 | Task07-C C 版 imx_safetyd | 已通过 | `tests/integration/2026-06-07_imx_safetyd_c.md` | C 版主控程序已交叉编译并部署到 i.MX6ULL，支持 `once/loop/flush`、读取真实 PIR gpio117、NORMAL/VERIFY/FAULT 最小状态机、VERIFY 抓拍、OPi5 mock AI、干净 fallback AI、Flask 上报、pending spool、flush 到 sent、运行日志和 status JSON；当前板端无 `systemctl`，systemd 模板仅入库备用；本轮 PIR 仅测到空闲 raw=0，VERIFY 使用 `FORCE_VERIFY=1`。 |
 | Task07-C2 init.d 启动管理 | 已通过 | `tests/integration/2026-06-07_imx_safetyd_initd.md` | BusyBox/SysV `init.d` 适配完成，支持 `start/stop/restart/status`、PID 文件、日志追加、重复启动防护；板端 `/etc/init.d/rcS` 会执行 `S??*`，具备开机自启条件；`/etc/edge-ai-safety-monitor/imx-safetyd.env` 由板端手动创建，未入库。 |
 
-## 13. 完成任务后的固定回填
+## 13. 后续增强路线（可选，不阻塞 MVP）
+
+| 增强项 | 目标 | 前置条件 | 风险 |
+|---|---|---|---|
+| Task07-D1 原生 libcurl | 替换 curl 子进程 | 确认 sysroot 有 libcurl | 依赖库缺失 |
+| Task07-D2 原生 V4L2 | 替换 v4l2-ctl 子进程 | 无 | mmap 流程复杂 |
+| Task07-D3 C 模块化拆分 | 单文件拆分为多模块 | D1/D2 完成后更自然 | 集成回归 |
+
+当前稳定基线：Task07-C C 版 imx_safetyd + v4l2-ctl/curl 子进程。Task07-D 不改变状态机规则和安全边界。
+
+## 14. 完成任务后的固定回填
 
 每完成一个 Task：
 
@@ -179,7 +189,7 @@ grep -RIn "\[CLAUDE_CODE_TODO" .
 4. 关闭或改写对应 `[CLAUDE_CODE_TODO]`，并按需重生成 `CLAUDE_CODE_TODO_INDEX.md`。
 5. 提交信息：`taskXX: 简短说明`；提交粒度小，不混多个 Task。
 
-## 14. Claude Code 专属提示
+## 15. Claude Code 专属提示
 
 - 本文件（`CLAUDE.md`）与 `AGENTS.md` 同步；遇到 `AGENTS.md` 中的规则一律视为同样适用。
 - 不确定硬件值/路径/IP/模型名时，新增 `[CLAUDE_CODE_TODO]`，不要猜、不要编造命令输出。

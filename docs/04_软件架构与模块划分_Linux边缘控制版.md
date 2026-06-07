@@ -36,6 +36,20 @@ edge/imx6ull-controller/        edge/opi5-ai/               server/backend/
 
 > **[ASSUMPTION]** 传感器与安全状态机属于人机尺度场景，Linux 用户态 50–100ms 周期可满足课程 MVP。 —— 若不成立，对应 [CLAUDE_CODE_TODO] 处理。
 
+当前实现（Task07-C）：
+
+- `imx_safetyd.c` 负责 GPIO、状态机、事件组装、降级、spool 和 status JSON。
+- 摄像头抓拍暂通过 `v4l2-ctl` 子进程完成。
+- HTTP 通信暂通过 `curl` 子进程完成。
+
+后续增强（Task07-D，可选，不阻塞 MVP）：
+
+- Task07-D1：将 HTTP 通信替换为原生 libcurl 模块。
+- Task07-D2：将摄像头抓拍替换为原生 V4L2 模块。
+- Task07-D3：将单文件 C 主控拆分为 gpio/camera/http/event/spool/fsm 等模块。
+
+该增强不改变 AI 不控制执行器的安全边界。
+
 
 > **[CLAUDE_CODE_TODO | MEASURE]** 实测 i.MX6ULL 控制循环抖动和端到端延迟
 > - 为何 GPT 给不了：沙箱无法在目标板运行控制进程。

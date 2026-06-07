@@ -59,6 +59,33 @@ Task07-C2 init.d 启动管理已通过：BusyBox/SysV `init.d` 脚本 `S99imx-sa
 
 后续阻塞项仍包括 Task05-B 真实 RKNN demo 运行验证、PC 侧 RKNN 资产盘点与最终 Dashboard 部署决策。
 
+## Task07-D：C 版 imx_safetyd 原生化与模块化增强（可选，不阻塞 MVP）
+
+> **[CLAUDE_CODE_TODO | ENHANCE]** Task07-D 后续升级路线记录
+> - 为何 GPT 给不了：沙箱无法验证 i.MX6ULL sysroot 是否具备 libcurl 头文件/库，也无法实测原生 V4L2 mmap 流程。
+> - 期望产物/操作：后续有时间时按 D1→D2→D3 顺序逐步升级。
+> - 回填位置：DEVPLAN、docs/04、docs/06、docs/11、CLAUDE_CODE_TODO_INDEX
+> - 验收：每项升级完成后，已有 Task07-C 行为不退化。
+
+Task07-D 为工程化增强项，不作为当前 MVP 验收阻塞项。当前 MVP 仍以 Task07-C C 版 imx_safetyd + v4l2-ctl/curl 子进程方案为稳定基线。
+
+- **Task07-D1：原生 libcurl HTTP client**
+  - 目标：用 libcurl API 替换当前 C 程序中调用 curl 命令的方式。
+  - 范围：封装 HTTP GET/POST、multipart 图片上传、JSON 上报、HTTP code、响应体、timeout 和错误码。
+  - 收益：减少外部命令依赖，提高 daemon 长期运行稳定性和错误诊断能力。
+  - 风险：需要确认 i.MX6ULL Buildroot sysroot 和板端运行环境具备 libcurl 头文件、库文件及其依赖。
+
+- **Task07-D2：原生 V4L2 抓拍**
+  - 目标：用 open/ioctl/mmap 或 read 方式直接访问 /dev/video1，替换当前 v4l2-ctl 命令。
+  - 范围：查询能力、设置 MJPG 640x480、申请 buffer、取一帧、保存 JPEG。
+  - 收益：减少 v4l2-ctl 依赖，获得更细粒度的摄像头错误信息和采集耗时。
+  - 风险：V4L2 mmap 流程复杂，需处理格式兼容、buffer 生命周期和异常清理。
+
+- **Task07-D3：更完整 C 模块化拆分**
+  - 目标：将当前单文件 imx_safetyd.c 拆分为 gpio、camera、http、event、spool、fsm、main 等模块。
+  - 收益：结构更清晰，便于报告展示和后续维护。
+  - 风险：拆分可能引入集成问题，必须保持 Task07-C 已通过行为不退化。
+
 Task06 Flask 契约扩展已通过：后端保持旧 `/api/events` 兼容，不修改 DB schema，通过 `raw_json` 透出 `contract_version/vision/ai_result/image_url/latency_ms`；Dashboard 新增 AI/视觉展示区，可展示 AI 摘要、`risk_hint`、objects、faces、image URL/图片预览、latency、pan/tilt 和 `control_allowed=false`。旧事件缺少 AI 字段时 API 返回 `null`，前端判空显示“暂无 AI/视觉结果”。
 
 

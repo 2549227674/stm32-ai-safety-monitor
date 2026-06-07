@@ -143,3 +143,15 @@ Task07-C 已落地 C 版主控程序 `edge/imx6ull-controller/src/imx_safetyd.c`
 - 在当前非 systemd 镜像上，可由 BusyBox/SysV `init.d/S99imx-safetyd` 管理进程；`/etc/init.d/rcS` 会遍历 `S??*`，因此具备开机自启条件，但需板端本地 `imx-safetyd.env`。
 
 证据见 `tests/integration/2026-06-07_imx_safetyd_c.md`。
+
+## 6.12 Task07-D 后续原生化增强（可选，不阻塞 MVP）
+
+Task07-C 当前已实现 C 版 imx_safetyd，支持 once/loop/flush、真实 gpio117 空闲读取、NORMAL/VERIFY、OPi5 offline fallback、Flask spool/flush。
+
+当前实现仍通过 v4l2-ctl/curl 子进程完成抓拍和 HTTP 通信。后续若时间充裕，可进入 Task07-D：
+
+- D1：原生 libcurl HTTP client。
+- D2：原生 V4L2 抓拍。
+- D3：C 模块化拆分。
+
+Task07-D 不改变状态机规则，只提升实现方式、错误诊断和长期运行可靠性。

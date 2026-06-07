@@ -4,6 +4,14 @@
 
 本文件由文档包中的 `[CLAUDE_CODE_TODO | 类型]` 标记汇总生成。完成待办后，请回填原文件并重新生成本索引。
 
+## ENHANCE
+
+| 文件:行 | 待办 | 期望产物/操作 | 验收 |
+|---|---|---|---|
+| `DEVPLAN.md` | Task07-D1：原生 libcurl HTTP client | 用 libcurl API 替换 curl 子进程，封装 GET/POST/multipart/timeout/错误码。 | 编译通过，/health GET、/api/infer/vision POST、/api/events POST 结果与 curl 子进程一致。 |
+| `DEVPLAN.md` | Task07-D2：原生 V4L2 抓拍 | 用 open/ioctl/mmap 访问 /dev/video1，替换 v4l2-ctl。 | 成功抓取 MJPG 640x480 JPEG，与 v4l2-ctl 抓拍文件对照一致。 |
+| `DEVPLAN.md` | Task07-D3：C 版 imx_safetyd 模块化拆分 | 拆分为 gpio/camera/http/event/spool/fsm/main 等模块。 | Task07-C 已通过行为不退化（NORMAL/VERIFY/offline/spool/flush/loop/status JSON）。 |
+
 ## DECIDE
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
