@@ -1,0 +1,18 @@
+[Unit]
+Description=OPi5 AI Service (Qwen3-VL Real AI with embedded worker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orangepi
+WorkingDirectory=/opt/edge-ai-safety-monitor/opi5-ai
+EnvironmentFile=-/etc/edge-ai/opi5-ai-qwen3vl.env
+ExecStart=/usr/bin/python3 app.py
+Restart=always
+RestartSec=8
+StandardOutput=append:/var/log/opi5-ai-qwen3vl.log
+StandardError=append:/var/log/opi5-ai-qwen3vl.log
+
+[Install]
+WantedBy=multi-user.target
