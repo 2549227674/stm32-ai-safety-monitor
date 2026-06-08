@@ -29,12 +29,14 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -56,6 +58,7 @@
 #define POSE_TOOL "/opt/edge-ai-safety-monitor/pca9685_set_pose"
 #define PCA9685_BUS "/dev/i2c-0"
 #define PCA9685_ADDR 0x40
+#define PCA9685_LOCK_PATH "/run/edge-ai-safety-monitor/pca9685.lock"
 
 static volatile sig_atomic_t keep_running = 1;
 
@@ -99,6 +102,42 @@ static int write_file(const char *path, const char *content) {
     fputs(content, fp);
     fclose(fp);
     return 0;
+}
+
+/* PCA9685 I2C lock (fcntl-based) */
+static int pca9685_lock_acquire(const char *lock_path) {
+    char dir[256];
+    snprintf(dir, sizeof(dir), "%s", lock_path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = '\0';
+        mkdir(dir, 0755);
+    }
+
+    int fd = open(lock_path, O_CREAT | O_RDWR, 0644);
+    if (fd < 0) return -1;
+
+    struct flock fl;
+    memset(&fl, 0, sizeof(fl));
+    fl.l_type = F_WRLCK;
+    fl.l_whence = SEEK_SET;
+
+    if (fcntl(fd, F_SETLKW, &fl) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static void pca9685_lock_release(int fd) {
+    if (fd >= 0) {
+        struct flock fl;
+        memset(&fl, 0, sizeof(fl));
+        fl.l_type = F_UNLCK;
+        fl.l_whence = SEEK_SET;
+        fcntl(fd, F_SETLK, &fl);
+        close(fd);
+    }
 }
 
 /* Simple JSON value extraction (no external dependency) */
@@ -238,12 +277,14 @@ static void write_visual_state(const char *path, double fire_score, const char *
              "  \"score\": %.3f,\n"
              "  \"label\": \"%s\",\n"
              "  \"ts\": \"%s\",\n"
+             "  \"monotonic_ms\": %lld,\n"
              "  \"alarm_phase\": \"%s\"\n"
              "}\n",
              fire_score > 0 ? "true" : "false",
              fire_score,
              label ? label : "none",
              ts,
+             (long long)now_ms(),
              alarm_phase ? alarm_phase : "IDLE");
     write_file(path, buf);
 }
@@ -278,13 +319,21 @@ static int move_gimbal(int offset_x, int offset_y, double step_us, double deadba
         *cur_pan_us = new_pan;
     }
 
-    /* Call pca9685_set_pose */
+    /* Call pca9685_set_pose with I2C lock (Hotfix E) */
+    int lock_fd = pca9685_lock_acquire(PCA9685_LOCK_PATH);
+    if (lock_fd < 0) {
+        fprintf(stderr, "[tracker] WARNING: PCA9685 lock acquire failed, skipping move\n");
+        return -1;
+    }
+
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
              "%s --bus %s --addr 0x%02x --pan-us %.0f --tilt-us %.0f --hold-ms 200",
              POSE_TOOL, PCA9685_BUS, PCA9685_ADDR,
              *cur_pan_us, *cur_tilt_us);
-    return run_shell(cmd);
+    int rc = run_shell(cmd);
+    pca9685_lock_release(lock_fd);
+    return rc;
 }
 
 static void usage(const char *prog) {

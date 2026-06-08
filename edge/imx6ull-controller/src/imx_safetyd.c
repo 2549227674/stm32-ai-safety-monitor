@@ -73,6 +73,9 @@
 #define DEFAULT_VISION_OFFLINE_AUTOSPRAY 1
 #define DEFAULT_SPRAY_MAX_MS 3000
 #define DEFAULT_SPRAY_COOLDOWN_MS 2000
+#define DEFAULT_AI_CONNECT_TIMEOUT_SEC 5
+#define DEFAULT_AI_MAX_TIME_SEC 20
+#define DEFAULT_PCA9685_LOCK_PATH "/run/edge-ai-safety-monitor/pca9685.lock"
 
 typedef struct {
     char opi5_url[256];
@@ -127,6 +130,11 @@ typedef struct {
     int vision_offline_autospray;
     int spray_max_ms;
     int spray_cooldown_ms;
+    /* AI timeout config */
+    int ai_connect_timeout_sec;
+    int ai_max_time_sec;
+    /* PCA9685 lock path */
+    char pca9685_lock_path[256];
 } AppConfig;
 
 typedef struct {
@@ -171,6 +179,13 @@ typedef struct {
     double visual_fire_score;
     char visual_fire_label[32];
     long long visual_state_ts_ms;
+    /* Actuator snapshot (actual physical state after spray gate) */
+    int actuator_buzzer;
+    int actuator_rgb_r;
+    int actuator_rgb_g;
+    int actuator_rgb_b;
+    int actuator_relay;
+    int actuator_pump;
 } EventContext;
 
 typedef struct {
@@ -189,6 +204,11 @@ static char g_log_file[512];
 static AppConfig g_cfg;
 static volatile sig_atomic_t g_cfg_ready = 0;
 
+/* Spray timing state (Hotfix D) */
+static long long g_last_spray_start_ms = 0;
+static long long g_last_spray_stop_ms = 0;
+static int g_spray_active = 0;
+
 static void all_off(const AppConfig *cfg);
 static void shell_quote(const char *src, char *dst, size_t size);
 static int run_shell_command(const char *cmd);
@@ -196,7 +216,11 @@ static void read_visual_state(const AppConfig *cfg, EventContext *ctx);
 static void determine_alarm_phase(const AppConfig *cfg, const SensorState *sensors,
                                    const EventContext *ctx, char *phase, size_t phase_size);
 static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors,
-                                 const EventContext *ctx);
+                                 EventContext *ctx);
+static long long extract_json_ll(const char *json, const char *key);
+/* PCA9685 I2C lock (Hotfix E) */
+static int pca9685_lock_acquire(const char *lock_path);
+static void pca9685_lock_release(int fd);
 
 static void handle_signal(int signum) {
     (void)signum;
@@ -317,6 +341,8 @@ static void usage(const char *prog) {
         "  --vision-offline-autospray 0|1 default/env VISION_OFFLINE_AUTOSPRAY\n"
         "  --spray-max-ms N            default/env SPRAY_MAX_MS\n"
         "  --spray-cooldown-ms N       default/env SPRAY_COOLDOWN_MS\n"
+        "  --ai-connect-timeout-sec N  default/env AI_CONNECT_TIMEOUT_SEC\n"
+        "  --ai-max-time-sec N         default/env AI_MAX_TIME_SEC\n"
         "  --help\n"
         "\n"
         "Notes:\n"
@@ -421,6 +447,9 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->vision_offline_autospray = set_from_env_int("VISION_OFFLINE_AUTOSPRAY", DEFAULT_VISION_OFFLINE_AUTOSPRAY);
     cfg->spray_max_ms = set_from_env_int("SPRAY_MAX_MS", DEFAULT_SPRAY_MAX_MS);
     cfg->spray_cooldown_ms = set_from_env_int("SPRAY_COOLDOWN_MS", DEFAULT_SPRAY_COOLDOWN_MS);
+    cfg->ai_connect_timeout_sec = set_from_env_int("AI_CONNECT_TIMEOUT_SEC", DEFAULT_AI_CONNECT_TIMEOUT_SEC);
+    cfg->ai_max_time_sec = set_from_env_int("AI_MAX_TIME_SEC", DEFAULT_AI_MAX_TIME_SEC);
+    set_from_env_string(cfg->pca9685_lock_path, sizeof(cfg->pca9685_lock_path), "PCA9685_LOCK_PATH", DEFAULT_PCA9685_LOCK_PATH);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -591,6 +620,10 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
             if (parse_int(argv[++i], &cfg->spray_max_ms) != 0) { return -1; }
         } else if (strcmp(argv[i], "--spray-cooldown-ms") == 0 && i + 1 < argc) {
             if (parse_int(argv[++i], &cfg->spray_cooldown_ms) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--ai-connect-timeout-sec") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->ai_connect_timeout_sec) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--ai-max-time-sec") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->ai_max_time_sec) != 0) { return -1; }
         } else {
             fprintf(stderr, "unknown or incomplete argument: %s\n", argv[i]);
             usage(argv[0]);
@@ -841,6 +874,8 @@ static void pca9685_set_rgb(const AppConfig *cfg, int r_on, int g_on, int b_on) 
     shell_quote(cfg->pca9685_bus, q_bus, sizeof(q_bus));
     shell_quote(tool_path, q_tool, sizeof(q_tool));
 
+    int lock_fd = pca9685_lock_acquire(cfg->pca9685_lock_path);
+
     snprintf(cmd, sizeof(cmd),
              "%s --bus %s --addr 0x%02x --channel %d --duty %d && "
              "%s --bus %s --addr 0x%02x --channel %d --duty %d && "
@@ -851,6 +886,8 @@ static void pca9685_set_rgb(const AppConfig *cfg, int r_on, int g_on, int b_on) 
     if (run_shell_command(cmd) != 0) {
         log_msg("[pca9685] WARNING: RGB PWM write failed");
     }
+
+    pca9685_lock_release(lock_fd);
 }
 
 static void pca9685_set_relay(const AppConfig *cfg, int on) {
@@ -865,11 +902,14 @@ static void pca9685_set_relay(const AppConfig *cfg, int on) {
     snprintf(tool_path, sizeof(tool_path), "%s/pca9685_set_pwm", cfg->base_dir);
     shell_quote(cfg->pca9685_bus, q_bus, sizeof(q_bus));
     shell_quote(tool_path, q_tool, sizeof(q_tool));
+
+    int lock_fd = pca9685_lock_acquire(cfg->pca9685_lock_path);
     snprintf(cmd, sizeof(cmd), "%s --bus %s --addr 0x%02x --channel %d --duty %d",
              q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_relay_ch, duty);
     if (run_shell_command(cmd) != 0) {
         log_msg("[relay] WARNING: CH%d duty=%d write failed", cfg->pca9685_relay_ch, duty);
     }
+    pca9685_lock_release(lock_fd);
 }
 
 static void pca9685_set_pump(const AppConfig *cfg, int on) {
@@ -884,15 +924,18 @@ static void pca9685_set_pump(const AppConfig *cfg, int on) {
     snprintf(tool_path, sizeof(tool_path), "%s/pca9685_set_pwm", cfg->base_dir);
     shell_quote(cfg->pca9685_bus, q_bus, sizeof(q_bus));
     shell_quote(tool_path, q_tool, sizeof(q_tool));
+
+    int lock_fd = pca9685_lock_acquire(cfg->pca9685_lock_path);
     snprintf(cmd, sizeof(cmd), "%s --bus %s --addr 0x%02x --channel %d --duty %d",
              q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_pump_ch, duty);
     if (run_shell_command(cmd) != 0) {
         log_msg("[pump] WARNING: CH%d duty=%d write failed", cfg->pca9685_pump_ch, duty);
     }
+    pca9685_lock_release(lock_fd);
 }
 
 static void apply_actuators_by_state(const AppConfig *cfg, const char *state,
-                                      const SensorState *sensors, const EventContext *ctx) {
+                                      const SensorState *sensors, EventContext *ctx) {
     int buzzer_on = 0, r_on = 0, g_on = 0, b_on = 0, relay_on = 0, pump_on = 0;
     int use_pca = (strcmp(cfg->rgb_backend, "pca9685") == 0);
 
@@ -912,6 +955,14 @@ static void apply_actuators_by_state(const AppConfig *cfg, const char *state,
         buzzer_on = 1;
         /* FAULT: relay/pump off to avoid false activation */
     }
+
+    /* Save actuator snapshot for event JSON (Hotfix A) */
+    ctx->actuator_buzzer = buzzer_on;
+    ctx->actuator_rgb_r = r_on;
+    ctx->actuator_rgb_g = g_on;
+    ctx->actuator_rgb_b = b_on;
+    ctx->actuator_relay = relay_on;
+    ctx->actuator_pump = pump_on;
 
     /* Buzzer always on GPIO */
     write_gpio_output(cfg->gpio_buzzer, cfg->gpio_buzzer_active_high, buzzer_on);
@@ -1158,6 +1209,46 @@ static int run_shell_command(const char *cmd) {
     return 128;
 }
 
+/* PCA9685 I2C lock (fcntl-based, works on BusyBox) */
+static int pca9685_lock_acquire(const char *lock_path) {
+    char dir[256];
+    snprintf(dir, sizeof(dir), "%s", lock_path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        *slash = '\0';
+        mkdir_p(dir);
+    }
+
+    int fd = open(lock_path, O_CREAT | O_RDWR, 0644);
+    if (fd < 0) {
+        log_msg("[lock] WARNING: open %s failed: %s", lock_path, strerror(errno));
+        return -1;
+    }
+
+    struct flock fl;
+    memset(&fl, 0, sizeof(fl));
+    fl.l_type = F_WRLCK;
+    fl.l_whence = SEEK_SET;
+
+    if (fcntl(fd, F_SETLKW, &fl) != 0) {
+        log_msg("[lock] WARNING: flock %s failed: %s", lock_path, strerror(errno));
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static void pca9685_lock_release(int fd) {
+    if (fd >= 0) {
+        struct flock fl;
+        memset(&fl, 0, sizeof(fl));
+        fl.l_type = F_UNLCK;
+        fl.l_whence = SEEK_SET;
+        fcntl(fd, F_SETLK, &fl);
+        close(fd);
+    }
+}
+
 static void capture_frame(const AppConfig *cfg, const AppPaths *paths, EventContext *ctx) {
     long long t0 = now_ms();
     ctx->capture_ok = false;
@@ -1269,6 +1360,18 @@ static double extract_json_double(const char *json, const char *key) {
     return atof(p);
 }
 
+static long long extract_json_ll(const char *json, const char *key) {
+    char needle[128];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char *p = strstr(json, needle);
+    if (p == NULL) return 0;
+    p = strchr(p, ':');
+    if (p == NULL) return 0;
+    p++;
+    while (*p && isspace((unsigned char)*p)) p++;
+    return strtoll(p, NULL, 10);
+}
+
 static void extract_json_string(const char *json, const char *key, char *out, size_t size) {
     char needle[128];
     snprintf(needle, sizeof(needle), "\"%s\"", key);
@@ -1304,10 +1407,19 @@ static void read_visual_state(const AppConfig *cfg, EventContext *ctx) {
         return;
     }
 
-    /* Check if the visual state is fresh enough */
-    extract_json_string(buf, "ts", ctx->visual_fire_label, sizeof(ctx->visual_fire_label));
-    /* Simple freshness check: parse ISO timestamp is complex; just check if file exists and has content */
     if (buf[0] == '\0') return;
+
+    /* Freshness check via monotonic_ms (Hotfix C) */
+    long long visual_ms = extract_json_ll(buf, "monotonic_ms");
+    long long age_ms = now_ms() - visual_ms;
+
+    if (visual_ms <= 0 || age_ms < 0 || age_ms > cfg->visual_confirm_window_ms) {
+        ctx->visual_fire_confirmed = 0;
+        ctx->visual_fire_score = 0.0;
+        ctx->visual_fire_label[0] = '\0';
+        ctx->visual_state_ts_ms = visual_ms;
+        return;
+    }
 
     ctx->visual_fire_confirmed = (strstr(buf, "\"fire_confirmed\": true") != NULL) ? 1 : 0;
     ctx->visual_fire_score = extract_json_double(buf, "score");
@@ -1344,28 +1456,79 @@ static void determine_alarm_phase(const AppConfig *cfg, const SensorState *senso
 }
 
 static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors,
-                                 const EventContext *ctx) {
-    /* Legacy behavior: pump follows ALARM state */
-    if (!cfg->spray_confirm_enable) {
-        return (strcmp(ctx->state, "ALARM") == 0) ? 1 : 0;
-    }
-
+                                 EventContext *ctx) {
     int local_hazard = sensors->flame || sensors->mq2;
-    if (!local_hazard) return 0;
 
-    int vision_hazard = ctx->visual_fire_confirmed &&
-                        ctx->visual_fire_score >= cfg->spray_min_ai_score;
-
-    if (cfg->spray_require_vision) {
-        if (vision_hazard) return 1;
-        /* Vision offline or no confirmation: check autospray */
-        if (!cfg->vision_offline_autospray) return 0;
-        /* Vision offline mode: default position auto-spray after confirm window */
-        /* For now, if vision is not confirmed, don't spray (tracker needs time) */
+    /* If no ALARM or no local hazard, stop spray if active */
+    if (strcmp(ctx->state, "ALARM") != 0 || !local_hazard) {
+        if (g_spray_active) {
+            g_spray_active = 0;
+            g_last_spray_stop_ms = now_ms();
+        }
         return 0;
     }
 
-    /* Not requiring vision: local hazard is enough */
+    /* Legacy behavior: pump follows ALARM state (still subject to max/cooldown) */
+    if (!cfg->spray_confirm_enable) {
+        /* Apply cooldown */
+        if (!g_spray_active && g_last_spray_stop_ms > 0) {
+            long long since_stop = now_ms() - g_last_spray_stop_ms;
+            if (since_stop >= 0 && since_stop < cfg->spray_cooldown_ms) {
+                return 0;
+            }
+        }
+        /* Apply max duration */
+        if (g_spray_active) {
+            long long spray_dur = now_ms() - g_last_spray_start_ms;
+            if (spray_dur >= cfg->spray_max_ms) {
+                g_spray_active = 0;
+                g_last_spray_stop_ms = now_ms();
+                log_msg("[spray] max duration %dms reached, stopping pump", cfg->spray_max_ms);
+                return 0;
+            }
+            return 1;
+        }
+        /* Start spray */
+        g_spray_active = 1;
+        g_last_spray_start_ms = now_ms();
+        return 1;
+    }
+
+    /* Double-confirmation mode */
+    int vision_hazard = ctx->visual_fire_confirmed &&
+                        ctx->visual_fire_score >= cfg->spray_min_ai_score;
+
+    if (cfg->spray_require_vision && !vision_hazard) {
+        if (g_spray_active) {
+            g_spray_active = 0;
+            g_last_spray_stop_ms = now_ms();
+        }
+        return 0;
+    }
+
+    /* Apply cooldown */
+    if (!g_spray_active && g_last_spray_stop_ms > 0) {
+        long long since_stop = now_ms() - g_last_spray_stop_ms;
+        if (since_stop >= 0 && since_stop < cfg->spray_cooldown_ms) {
+            return 0;
+        }
+    }
+
+    /* Apply max duration */
+    if (g_spray_active) {
+        long long spray_dur = now_ms() - g_last_spray_start_ms;
+        if (spray_dur >= cfg->spray_max_ms) {
+            g_spray_active = 0;
+            g_last_spray_stop_ms = now_ms();
+            log_msg("[spray] max duration %dms reached, stopping pump", cfg->spray_max_ms);
+            return 0;
+        }
+        return 1;
+    }
+
+    /* Start spray */
+    g_spray_active = 1;
+    g_last_spray_start_ms = now_ms();
     return 1;
 }
 
@@ -1443,8 +1606,9 @@ static void post_opi5_ai(const AppConfig *cfg, const SensorState *sensors, Event
 
     snprintf(cmd, sizeof(cmd),
              "curl -sS -X POST -F %s -F %s %s -o %s -w '%%{http_code}' "
-             "--connect-timeout 5 --max-time 10 > %s 2>/dev/null",
-             q_image, q_meta, q_url, q_ai, q_http);
+             "--connect-timeout %d --max-time %d > %s 2>/dev/null",
+             q_image, q_meta, q_url, q_ai,
+             cfg->ai_connect_timeout_sec, cfg->ai_max_time_sec, q_http);
 
     log_msg("[ai] POST %s/api/infer/vision", cfg->opi5_url);
     if (run_shell_command(cmd) != 0) {
@@ -1481,21 +1645,13 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
         ai_json = ai_buf;
     }
 
-    int buzzer_out = 0, rgb_r_out = 0, rgb_g_out = 0, rgb_b_out = 0, relay_out = 0, pump_out = 0;
-    if (strcmp(ctx->state, "NORMAL") == 0) {
-        rgb_g_out = 1;
-    } else if (strcmp(ctx->state, "VERIFY") == 0) {
-        rgb_b_out = 1;
-    } else if (strcmp(ctx->state, "ALARM") == 0) {
-        rgb_r_out = 1;
-        buzzer_out = 1;
-        relay_out = 1;
-        pump_out = 1;
-    } else if (strcmp(ctx->state, "FAULT") == 0) {
-        rgb_r_out = 1;
-        rgb_b_out = 1;
-        buzzer_out = 1;
-    }
+    /* Use actuator snapshot from apply_actuators_by_state (Hotfix A) */
+    int buzzer_out = ctx->actuator_buzzer;
+    int rgb_r_out = ctx->actuator_rgb_r;
+    int rgb_g_out = ctx->actuator_rgb_g;
+    int rgb_b_out = ctx->actuator_rgb_b;
+    int relay_out = ctx->actuator_relay;
+    int pump_out = ctx->actuator_pump;
 
     /* Build soc_temp part of sensors JSON */
     char soc_temp_json[64];
@@ -1513,6 +1669,14 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
         snprintf(spray_score_str, sizeof(spray_score_str), "%.3f", ctx->visual_fire_score);
     } else {
         snprintf(spray_score_str, sizeof(spray_score_str), "null");
+    }
+
+    /* Build matched_label as valid JSON string or null (Hotfix B) */
+    char matched_label_json[80];
+    if (ctx->visual_fire_label[0]) {
+        snprintf(matched_label_json, sizeof(matched_label_json), "\"%s\"", ctx->visual_fire_label);
+    } else {
+        snprintf(matched_label_json, sizeof(matched_label_json), "null");
     }
 
     FILE *fp = fopen(out_file, "w");
@@ -1574,7 +1738,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             cfg->spray_confirm_enable ? "true" : "false",
             (sensors->flame || sensors->mq2) ? "true" : "false",
             ctx->visual_fire_confirmed ? "true" : "false",
-            ctx->visual_fire_label[0] ? ctx->visual_fire_label : "null",
+            matched_label_json,
             spray_score_str,
             cfg->spray_min_ai_score,
             /* decision */
