@@ -94,7 +94,63 @@ Task02 已验证本地 `inventory.yaml`、i.MX6ULL SSH、OPi5 SSH smoke test、h
 - 遇到硬件值、路径、IP、模型名不确定时，新增 `[CLAUDE_CODE_TODO]`，不要猜。
 - 任何对 `server/backend/` 的改动必须保持旧 `/api/events` 事件兼容。
 
-## 7. 每轮回报模板
+## 7. 演示前网络检查
+
+当前优先演示方案：全无线热点（PC + i.MX + OPi5 均连接同一手机热点）。
+
+### 全无线检查（优先）
+
+Windows PowerShell：
+
+```powershell
+ipconfig
+ping <IMX_WIFI_IP>
+ping <OPI5_WIFI_IP>
+curl.exe --connect-timeout 5 http://<OPI5_WIFI_IP>:8080/health
+curl.exe --connect-timeout 5 http://<PC_WIFI_IP>:5000/api/status/latest
+```
+
+i.MX：
+
+```sh
+/etc/init.d/S45wifi-client status
+ip addr show wlan0
+env | grep -i proxy || true
+curl -sS --connect-timeout 5 http://<OPI5_WIFI_IP>:8080/health
+curl -sS --connect-timeout 5 http://<PC_WIFI_IP>:5000/api/status/latest || true
+```
+
+OPi5：
+
+```bash
+nmcli dev
+lsmod | grep -E '8188|r8188'
+env | grep -i proxy || true
+curl -sS --connect-timeout 5 http://127.0.0.1:8080/health
+```
+
+### 回退方案
+
+若全无线失败：
+
+1. 使用 Windows portproxy 回退（i.MX 有线 → PC:18080 → OPi5 WiFi）。
+2. 或插回 OPi5 / i.MX 网线，使用全有线链路（i.MX → OPi5 10.0.1.120:8080）。
+3. 不现场改业务代码。
+
+Windows portproxy 回退检查：
+
+```powershell
+netsh interface portproxy show v4tov4
+curl.exe http://192.168.137.1:18080/health
+```
+
+全有线回退检查：
+
+```bash
+curl -sS --connect-timeout 5 http://10.0.1.120:8080/health
+```
+
+## 8. 每轮回报模板
 
 ```text
 本轮完成：

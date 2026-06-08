@@ -278,7 +278,78 @@ cat /sys/class/thermal/thermal_zone0/temp   # 毫摄氏度，47000 = 47°C
 
 蜂鸣器必须继续走 gpio122 直连 GPIO + NPN 三极管驱动，**不经 PCA9685**。这是本地安全报警核心输出，保证 I2C 失效时报警仍可发声。
 
-## 0.8 不可违反的硬约束
+## 0.8 端边网络拓扑与 AI URL（唯一事实源）
+
+### 当前优先演示网络：全无线热点
+
+PC / i.MX6ULL / OPi5 均连接同一个手机热点，全无线自动恢复。
+
+```text
+手机热点 (10.96.98.0/24)
+├── PC / Windows (WiFi IP)  — Flask Dashboard
+├── OPi5 (WiFi IP)          — AI Service
+└── i.MX6ULL (WiFi IP)      — 本地主控 imx_safetyd
+```
+
+全无线路径：
+
+```text
+i.MX WiFi → OPi5 WiFi AI service:  http://<OPI5_WIFI_IP>:8080/api/infer/vision
+i.MX WiFi → PC WiFi Flask:         http://<PC_WIFI_IP>:5000/api/events
+```
+
+本轮验证 IP 示例：PC=10.96.98.103，OPi5=10.96.98.38，i.MX=10.96.98.109；手机热点 DHCP 可能变化，演示前需检查。
+
+### 回退链路
+
+| 优先级 | 方案 | AI URL |
+|---|---|---|
+| 1（当前） | 全无线热点 | `http://<OPI5_WIFI_IP>:8080/api/infer/vision` |
+| 2 | Windows portproxy | `http://192.168.137.1:18080/api/infer/vision` |
+| 3 | 全有线 | `http://10.0.1.120:8080/api/infer/vision` |
+
+### WiFi 驱动信息
+
+| 设备 | 硬件 | 驱动 | 接口 | 关键约束 |
+|---|---|---|---|---|
+| i.MX6ULL 板载 | RTL8723BU / 0bda:b720 | 8723bu.ko (v4.3.6.11) | wlan0 | **必须 nl80211**，wext 会连接后立即断开 |
+| OPi5 USB | RTL8188ETV / 0bda:0179 | 8188eu.ko (lwfinger) | wlx8420965bb9d8 | nmcli autoconnect |
+
+### 代理
+
+i.MX / OPi5 默认无代理，内部链路直连，不经过 PC 7890 代理。如外网下载需要代理，只允许当前 shell 临时 export，不写入默认启动配置。
+
+### 自启动
+
+- i.MX：`/etc/init.d/S45wifi-client`（nl80211 + 模块重载 + udhcpc）
+- OPi5：nmcli autoconnect=yes + `/etc/modules-load.d/8188eu.conf`
+- 重启后自动恢复，无需人工干预
+
+### 证据
+
+- `tests/imx6ull/2026-06-08_imx6ull_onboard_rtl8723bu_wifi_retry.md`
+- `tests/opi5/2026-06-08_opi5_usb_wifi_rtl8188eu.md`
+- `tests/integration/2026-06-08_windows_portproxy_opi5_wifi_ai.md`
+- `tests/integration/2026-06-08_opi5_unplug_wired_portproxy_regression.md`
+- `tests/integration/2026-06-08_full_wireless_hotspot_chain.md`
+- `tests/integration/2026-06-08_full_wireless_autostart_regression.md`
+
+Windows portproxy 管理命令（管理员 PowerShell）：
+
+```powershell
+# 创建
+netsh interface portproxy add v4tov4 listenaddress=192.168.137.1 listenport=18080 connectaddress=<OPI5_WIFI_IP> connectport=8080
+New-NetFirewallRule -DisplayName "OPi5-AI-Port-Forward-18080" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 18080
+
+# 查看
+netsh interface portproxy show v4tov4
+
+# 删除（回退）
+netsh interface portproxy delete v4tov4 listenaddress=192.168.137.1 listenport=18080
+Remove-NetFirewallRule -DisplayName "OPi5-AI-Port-Forward-18080"
+```
+
+## 0.9 不可违反的硬约束
 
 1. 本地安全闭环优先；无网络、无摄像头、无 AI 时，i.MX6ULL 仍要能依据本地传感器进入安全状态。
 2. AI / Dashboard / 上层服务只允许返回 `risk_hint`、解释和展示信息，不直接控制蜂鸣器、RGB、继电器、水泵。

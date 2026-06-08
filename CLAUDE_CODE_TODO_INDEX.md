@@ -4,6 +4,30 @@
 
 本文件由文档包中的 `[CLAUDE_CODE_TODO | 类型]` 标记汇总生成。完成待办后，请回填原文件并重新生成本索引。
 
+## COMPLETED (Task12)
+
+| 文件 | 待办 | 结果 | 证据 |
+|---|---|---|---|
+| Task12-A | OPi5 USB WiFi rtl8188eu 驱动编译 | 已通过 | `tests/opi5/2026-06-08_opi5_usb_wifi_rtl8188eu.md` |
+| Task12-B | Windows portproxy 转发验证 | 已通过 | `tests/integration/2026-06-08_windows_portproxy_opi5_wifi_ai.md` |
+| Task12-C | 拔掉 OPi5 网线后回归测试 | 已通过 | `tests/integration/2026-06-08_opi5_unplug_wired_portproxy_regression.md` |
+| Task12-D | i.MX 板载 RTL8723BU 诊断 | 已通过 | `tests/imx6ull/2026-06-08_imx6ull_onboard_wifi_4g_diagnostic.md` |
+| Task12-E | i.MX 板载 WiFi 连接验证 | 已通过 | `tests/imx6ull/2026-06-08_imx6ull_onboard_rtl8723bu_wifi_retry.md` |
+| Task12-F | 全无线热点链路验证 | 已通过 | `tests/integration/2026-06-08_full_wireless_hotspot_chain.md` |
+| Task12-G | 全无线自启动与重启回归 | 已通过 | `tests/integration/2026-06-08_full_wireless_autostart_regression.md` |
+| Task12-H | 文档同步收口 | 已通过 | 本文件 + CANONICAL/DEVPLAN/docs 更新 |
+
+### 演示前检查项（全无线优先）
+
+- [ ] 检查 PC 是否连接手机热点
+- [ ] 检查 OPi5 WiFi IP（`nmcli dev` 或 `ip addr`）
+- [ ] 检查 i.MX WiFi IP（`/etc/init.d/S45wifi-client status`）
+- [ ] 检查 Flask 是否监听 0.0.0.0:5000
+- [ ] 检查 OPi5 AI health（`curl http://<OPI5_WIFI_IP>:8080/health`）
+- [ ] 检查 i.MX → OPi5 AI（`curl http://<OPI5_WIFI_IP>:8080/health`）
+- [ ] 检查 i.MX → PC Flask（`curl http://<PC_WIFI_IP>:5000/api/status/latest`）
+- [ ] 保留网线作为回退
+
 ## ENHANCE
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |
