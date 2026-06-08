@@ -35,8 +35,14 @@ start() {
         return 1
     fi
 
-    ip link set "$IFACE" up 2>/dev/null
+    # Reload module to ensure clean state (RTL8723BU needs this after stop/start)
+    rmmod 8723bu 2>/dev/null
     sleep 2
+    modprobe 8723bu 2>/dev/null || insmod /lib/modules/$(uname -r)/extra/8723bu.ko 2>/dev/null
+    sleep 3
+
+    ip link set "$IFACE" up 2>/dev/null
+    sleep 3
 
     # Start wpa_supplicant in background
     $DAEMON -i "$IFACE" -c "$WPA_CONF" -D "$DRIVER" -B -P "$WPA_PIDFILE" >> "$LOGFILE" 2>&1
