@@ -9,7 +9,7 @@
 | 项目 | 结果 |
 |---|---|
 | i.MX 默认代理是否清理 | 无代理配置（干净） |
-| OPi5 默认代理是否清理 | 待手动确认（WSL 无法直接 SSH 到 OPi5 WiFi） |
+| OPi5 默认代理是否清理 | 无代理配置（通过 i.MX SSH 确认） |
 | i.MX 新 shell 是否仍有代理 | 否 |
 | imx_safetyd 环境是否含代理 | 否 |
 
@@ -31,10 +31,11 @@
 
 | 项目 | 结果 |
 |---|---|
-| nmcli autoconnect | 待手动配置（WSL 无法直接 SSH 到 OPi5 WiFi） |
-| 8188eu 自动加载 | 待手动确认 |
+| nmcli autoconnect | 已配置（connection.autoconnect=yes, retries=-1） |
+| 8188eu 自动加载 | 已配置（/etc/modules-load.d/8188eu.conf） |
+| AI 服务 | 运行中（mock 模式） |
 
-OPi5 需要手动执行：
+配置命令（通过 i.MX Python pty SSH 执行）：
 
 ```bash
 nmcli con modify "Redmi K70" connection.autoconnect yes
