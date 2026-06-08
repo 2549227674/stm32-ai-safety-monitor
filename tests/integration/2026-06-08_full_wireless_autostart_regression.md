@@ -54,12 +54,15 @@ echo "8188eu" | sudo tee /etc/modules-load.d/8188eu.conf
 
 ## 重启回归
 
-重启回归需要用户手动操作（重启 i.MX / OPi5 后检查 WiFi 自动连接）。当前测试验证了：
-
-- S45wifi-client 脚本可手动 start/stop
-- wpa_supplicant 使用 nl80211 可连接
-- DHCP 可获取 IP
-- 全链路可通
+| 项目 | 结果 |
+|---|---|
+| i.MX 重启后 WiFi 自动连接 | 是（S45wifi-client 自动启动，IP 10.96.98.109） |
+| OPi5 重启后 WiFi 自动连接 | 是（nmcli autoconnect，IP 10.96.98.38） |
+| OPi5 重启后 AI 服务自动运行 | 是（mock 模式） |
+| i.MX proxy 重启后 | 无代理（干净） |
+| i.MX → OPi5 AI health | 成功 |
+| i.MX → OPi5 AI infer | 成功（risk_hint=2, control_allowed=false, latency_ms=6） |
+| i.MX → PC Flask health | 成功 |
 
 ## 回退方案
 
@@ -71,10 +74,10 @@ echo "8188eu" | sudo tee /etc/modules-load.d/8188eu.conf
 
 ## 结论
 
-- i.MX WiFi 自启动脚本已部署并验证（含模块重载修复）
-- OPi5 WiFi autoconnect 待手动配置
-- 全无线链路已验证可用
-- 重启回归待用户手动验证
+- **重启回归通过**：i.MX 和 OPi5 均在重启后自动连接手机热点
+- i.MX WiFi 自启动脚本部署并验证（含模块重载修复）
+- OPi5 WiFi autoconnect 和 8188eu 模块自动加载已配置
+- 全无线链路重启后自动恢复，无需人工干预
 - 答辩现场保留网线回退
 
 ## 风险
