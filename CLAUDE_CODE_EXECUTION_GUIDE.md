@@ -96,34 +96,59 @@ Task02 已验证本地 `inventory.yaml`、i.MX6ULL SSH、OPi5 SSH smoke test、h
 
 ## 7. 演示前网络检查
 
-演示前必须确认端边 AI 链路可用。按当前网络方案选择检查命令。
+当前优先演示方案：全无线热点（PC + i.MX + OPi5 均连接同一手机热点）。
 
-### 方案 A：全有线（默认回退）
+### 全无线检查（优先）
 
-```bash
-# i.MX 上执行
-curl -sS --connect-timeout 5 http://10.0.1.120:8080/health
-```
-
-### 方案 B：OPi5 WiFi + Windows portproxy（可选优化）
+Windows PowerShell：
 
 ```powershell
-# Windows 管理员 PowerShell
-curl.exe http://10.96.98.38:8080/health
-curl.exe http://192.168.137.1:18080/health
-netsh interface portproxy show v4tov4
+ipconfig
+ping <IMX_WIFI_IP>
+ping <OPI5_WIFI_IP>
+curl.exe --connect-timeout 5 http://<OPI5_WIFI_IP>:8080/health
+curl.exe --connect-timeout 5 http://<PC_WIFI_IP>:5000/api/status/latest
 ```
+
+i.MX：
+
+```sh
+/etc/init.d/S45wifi-client status
+ip addr show wlan0
+env | grep -i proxy || true
+curl -sS --connect-timeout 5 http://<OPI5_WIFI_IP>:8080/health
+curl -sS --connect-timeout 5 http://<PC_WIFI_IP>:5000/api/status/latest || true
+```
+
+OPi5：
 
 ```bash
-# i.MX 上执行
-curl -sS --connect-timeout 5 http://192.168.137.1:18080/health
+nmcli dev
+lsmod | grep -E '8188|r8188'
+env | grep -i proxy || true
+curl -sS --connect-timeout 5 http://127.0.0.1:8080/health
 ```
 
-### 回退步骤
+### 回退方案
 
-1. 插回 OPi5 有线网线。
-2. 确认 OPi5 有线 IP（`ip addr`）。
-3. 在 i.MX 上 curl 旧有线 AI URL：`http://10.0.1.120:8080/api/infer/vision`。
+若全无线失败：
+
+1. 使用 Windows portproxy 回退（i.MX 有线 → PC:18080 → OPi5 WiFi）。
+2. 或插回 OPi5 / i.MX 网线，使用全有线链路（i.MX → OPi5 10.0.1.120:8080）。
+3. 不现场改业务代码。
+
+Windows portproxy 回退检查：
+
+```powershell
+netsh interface portproxy show v4tov4
+curl.exe http://192.168.137.1:18080/health
+```
+
+全有线回退检查：
+
+```bash
+curl -sS --connect-timeout 5 http://10.0.1.120:8080/health
+```
 
 ## 8. 每轮回报模板
 
