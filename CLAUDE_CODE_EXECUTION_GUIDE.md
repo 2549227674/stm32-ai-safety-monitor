@@ -94,7 +94,38 @@ Task02 已验证本地 `inventory.yaml`、i.MX6ULL SSH、OPi5 SSH smoke test、h
 - 遇到硬件值、路径、IP、模型名不确定时，新增 `[CLAUDE_CODE_TODO]`，不要猜。
 - 任何对 `server/backend/` 的改动必须保持旧 `/api/events` 事件兼容。
 
-## 7. 每轮回报模板
+## 7. 演示前网络检查
+
+演示前必须确认端边 AI 链路可用。按当前网络方案选择检查命令。
+
+### 方案 A：全有线（默认回退）
+
+```bash
+# i.MX 上执行
+curl -sS --connect-timeout 5 http://10.0.1.120:8080/health
+```
+
+### 方案 B：OPi5 WiFi + Windows portproxy（可选优化）
+
+```powershell
+# Windows 管理员 PowerShell
+curl.exe http://10.96.98.38:8080/health
+curl.exe http://192.168.137.1:18080/health
+netsh interface portproxy show v4tov4
+```
+
+```bash
+# i.MX 上执行
+curl -sS --connect-timeout 5 http://192.168.137.1:18080/health
+```
+
+### 回退步骤
+
+1. 插回 OPi5 有线网线。
+2. 确认 OPi5 有线 IP（`ip addr`）。
+3. 在 i.MX 上 curl 旧有线 AI URL：`http://10.0.1.120:8080/api/infer/vision`。
+
+## 8. 每轮回报模板
 
 ```text
 本轮完成：

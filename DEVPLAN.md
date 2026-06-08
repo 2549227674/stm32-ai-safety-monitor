@@ -90,6 +90,14 @@ Task07-D 为工程化增强项，不作为当前 MVP 验收阻塞项。当前 MV
 
 Task11 P1 扩展：11-A OLED 已通过，11-B relay 已通过（PCA9685 CH5 active high，默认 OFF，ALARM 时 relay=1）。下一步 11-C soc_temp。P1 全部走 I2C 总线 + PCA9685 空闲通道 + SoC 内部温度，不占用 P0 的直连 GPIO。切片顺序：11-A OLED ✓ → 11-B relay ✓ → 11-C soc_temp → 11-D pump water tank。
 
+Task12 网络优化（OPi5 WiFi + Windows portproxy）：已完成。
+- rtl8188eu 驱动编译成功（0bda:0179 / RTL8188ETV，lwfinger/rtl8188eu）。
+- OPi5 WiFi 连接手机热点，IP 10.96.98.38。
+- Windows portproxy：192.168.137.1:18080 → 10.96.98.38:8080。
+- 拔掉 OPi5 有线网线后回归通过：i.MX → portproxy health + infer 均成功。
+- 全有线回退保留：i.MX → OPi5 wired 10.0.1.120:8080。
+- 证据：`tests/opi5/2026-06-08_opi5_usb_wifi_rtl8188eu.md`、`tests/integration/2026-06-08_windows_portproxy_opi5_wifi_ai.md`、`tests/integration/2026-06-08_opi5_unplug_wired_portproxy_regression.md`。
+
 Task10 P0 传感器/执行器真实化：待执行。门磁/火焰/MQ-2/PIR 四路输入读真实 GPIO，蜂鸣器/RGB 两路输出真实驱动。按 10-A→10-E 垂直切片逐个验证，不改 OPi5/AI，不改 Flask schema。核心价值：把 door/flame/mq2 固定 0、执行器仅事件字段的 caveat 逐步替换为真实本地安全闭环证据。引脚以 `CANONICAL_DECISIONS.md` 0.6 为准。
 
 Task06 Flask 契约扩展已通过：后端保持旧 `/api/events` 兼容，不修改 DB schema，通过 `raw_json` 透出 `contract_version/vision/ai_result/image_url/latency_ms`；Dashboard 新增 AI/视觉展示区，可展示 AI 摘要、`risk_hint`、objects、faces、image URL/图片预览、latency、pan/tilt 和 `control_allowed=false`。旧事件缺少 AI 字段时 API 返回 `null`，前端判空显示”暂无 AI/视觉结果”。

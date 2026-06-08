@@ -13,7 +13,16 @@
 
 ## 7.2 i.MX6ULL → OPi5 推理请求
 
-接口：`POST http://<OPI5_HOST_TODO_FILL>:<OPI5_AI_PORT_TODO_FILL>/api/infer/vision`
+接口：`POST http://<OPI5_AI_URL>/api/infer/vision`
+
+AI URL 按网络方案选择：
+
+| 方案 | AI URL | 说明 |
+|---|---|---|
+| 全有线（默认回退） | `http://10.0.1.120:8080/api/infer/vision` | i.MX → OPi5 有线，同子网 |
+| OPi5 WiFi + Windows portproxy（可选优化） | `http://192.168.137.1:18080/api/infer/vision` | i.MX → PC:18080 → OPi5 WiFi |
+
+AI 仍只返回 `risk_hint` / `summary` / `explanation` / `labels` / `objects`，`control_allowed=false`，不直接控制执行器。
 
 Content-Type：`multipart/form-data`
 

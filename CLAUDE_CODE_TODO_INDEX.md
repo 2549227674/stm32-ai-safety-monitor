@@ -4,6 +4,21 @@
 
 本文件由文档包中的 `[CLAUDE_CODE_TODO | 类型]` 标记汇总生成。完成待办后，请回填原文件并重新生成本索引。
 
+## COMPLETED (Task12)
+
+| 文件 | 待办 | 结果 | 证据 |
+|---|---|---|---|
+| Task12 | OPi5 USB WiFi rtl8188eu 驱动编译 | 已通过 | `tests/opi5/2026-06-08_opi5_usb_wifi_rtl8188eu.md` |
+| Task12 | Windows portproxy 转发验证 | 已通过 | `tests/integration/2026-06-08_windows_portproxy_opi5_wifi_ai.md` |
+| Task12-b | 拔掉 OPi5 网线后回归测试 | 已通过 | `tests/integration/2026-06-08_opi5_unplug_wired_portproxy_regression.md` |
+
+### 演示前检查项（Task12 网络优化）
+
+- [ ] 检查 OPi5 WiFi IP（`nmcli dev` 或 `ip addr`）
+- [ ] 检查 Windows portproxy 规则（`netsh interface portproxy show v4tov4`）
+- [ ] 检查 i.MX → portproxy health（`curl http://192.168.137.1:18080/health`）
+- [ ] 如失败，插回 OPi5 网线，使用全有线回退（`curl http://10.0.1.120:8080/health`）
+
 ## ENHANCE
 
 | 文件:行 | 待办 | 期望产物/操作 | 验收 |

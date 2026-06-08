@@ -278,7 +278,48 @@ cat /sys/class/thermal/thermal_zone0/temp   # 毫摄氏度，47000 = 47°C
 
 蜂鸣器必须继续走 gpio122 直连 GPIO + NPN 三极管驱动，**不经 PCA9685**。这是本地安全报警核心输出，保证 I2C 失效时报警仍可发声。
 
-## 0.8 不可违反的硬约束
+## 0.8 端边网络拓扑与 AI URL（唯一事实源）
+
+默认回退（全有线）：
+
+```text
+i.MX6ULL eth1 (10.0.1.1) ↔ OPi5 eth0 (10.0.1.120)
+AI URL: http://10.0.1.120:8080/api/infer/vision
+```
+
+可选优化（OPi5 WiFi + Windows portproxy）：
+
+```text
+i.MX6ULL eth0 (192.168.137.110) → Windows Ethernet (192.168.137.1:18080)
+    ↓ portproxy
+Windows WLAN (10.96.98.103) → OPi5 WiFi (10.96.98.38:8080)
+AI URL: http://192.168.137.1:18080/api/infer/vision
+```
+
+约束：
+
+- Windows 必须同时连接 i.MX 有线网络和 OPi5 WiFi（手机热点）。
+- OPi5 WiFi IP 变化后需重建 Windows portproxy 规则。
+- WiFi/portproxy 不是唯一主链路；全有线仍保留为最终演示回退。
+- OPi5 USB WiFi 网卡：0bda:0179 / RTL8188ETV，驱动 lwfinger/rtl8188eu（8188eu.ko）。
+- evidence：`tests/opi5/2026-06-08_opi5_usb_wifi_rtl8188eu.md`、`tests/integration/2026-06-08_windows_portproxy_opi5_wifi_ai.md`、`tests/integration/2026-06-08_opi5_unplug_wired_portproxy_regression.md`。
+
+Windows portproxy 管理命令（管理员 PowerShell）：
+
+```powershell
+# 创建
+netsh interface portproxy add v4tov4 listenaddress=192.168.137.1 listenport=18080 connectaddress=10.96.98.38 connectport=8080
+New-NetFirewallRule -DisplayName "OPi5-AI-Port-Forward-18080" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 18080
+
+# 查看
+netsh interface portproxy show v4tov4
+
+# 删除（回退）
+netsh interface portproxy delete v4tov4 listenaddress=192.168.137.1 listenport=18080
+Remove-NetFirewallRule -DisplayName "OPi5-AI-Port-Forward-18080"
+```
+
+## 0.9 不可违反的硬约束
 
 1. 本地安全闭环优先；无网络、无摄像头、无 AI 时，i.MX6ULL 仍要能依据本地传感器进入安全状态。
 2. AI / Dashboard / 上层服务只允许返回 `risk_hint`、解释和展示信息，不直接控制蜂鸣器、RGB、继电器、水泵。
