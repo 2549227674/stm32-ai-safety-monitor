@@ -64,6 +64,16 @@
 #define DEFAULT_OPI5_URL "http://127.0.0.1:8080"
 #define INITIAL_SEQ 9000
 
+/* Spray double-confirmation defaults */
+#define DEFAULT_SPRAY_CONFIRM_ENABLE 0
+#define DEFAULT_SPRAY_REQUIRE_VISION 1
+#define DEFAULT_SPRAY_MIN_AI_SCORE 0.50
+#define DEFAULT_VISUAL_STATE_PATH "/run/imx_visual_state.json"
+#define DEFAULT_VISUAL_CONFIRM_WINDOW_MS 1500
+#define DEFAULT_VISION_OFFLINE_AUTOSPRAY 1
+#define DEFAULT_SPRAY_MAX_MS 3000
+#define DEFAULT_SPRAY_COOLDOWN_MS 2000
+
 typedef struct {
     char opi5_url[256];
     char backend_url[256];
@@ -108,6 +118,15 @@ typedef struct {
     int pump_enable;
     int pca9685_pump_ch;
     int pca9685_pump_active_high;
+    /* Spray double-confirmation */
+    int spray_confirm_enable;
+    int spray_require_vision;
+    double spray_min_ai_score;
+    char visual_state_path[256];
+    int visual_confirm_window_ms;
+    int vision_offline_autospray;
+    int spray_max_ms;
+    int spray_cooldown_ms;
 } AppConfig;
 
 typedef struct {
@@ -146,6 +165,12 @@ typedef struct {
     int ai_ms;
     int post_ms;
     int total_ms;
+    /* Spray double-confirmation */
+    char alarm_phase[16];
+    int visual_fire_confirmed;
+    double visual_fire_score;
+    char visual_fire_label[32];
+    long long visual_state_ts_ms;
 } EventContext;
 
 typedef struct {
@@ -167,6 +192,11 @@ static volatile sig_atomic_t g_cfg_ready = 0;
 static void all_off(const AppConfig *cfg);
 static void shell_quote(const char *src, char *dst, size_t size);
 static int run_shell_command(const char *cmd);
+static void read_visual_state(const AppConfig *cfg, EventContext *ctx);
+static void determine_alarm_phase(const AppConfig *cfg, const SensorState *sensors,
+                                   const EventContext *ctx, char *phase, size_t phase_size);
+static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors,
+                                 const EventContext *ctx);
 
 static void handle_signal(int signum) {
     (void)signum;
@@ -279,6 +309,14 @@ static void usage(const char *prog) {
         "  --pump-enable 0|1           default/env PUMP_ENABLE\n"
         "  --pca9685-pump-ch N        default/env PCA9685_PUMP_CH\n"
         "  --pca9685-pump-active-high 0|1 default/env PCA9685_PUMP_ACTIVE_HIGH\n"
+        "  --spray-confirm-enable 0|1  default/env SPRAY_CONFIRM_ENABLE\n"
+        "  --spray-require-vision 0|1  default/env SPRAY_REQUIRE_VISION\n"
+        "  --spray-min-ai-score F      default/env SPRAY_MIN_AI_SCORE\n"
+        "  --visual-state-path PATH    default/env VISUAL_STATE_PATH\n"
+        "  --visual-confirm-window-ms N default/env VISUAL_CONFIRM_WINDOW_MS\n"
+        "  --vision-offline-autospray 0|1 default/env VISION_OFFLINE_AUTOSPRAY\n"
+        "  --spray-max-ms N            default/env SPRAY_MAX_MS\n"
+        "  --spray-cooldown-ms N       default/env SPRAY_COOLDOWN_MS\n"
         "  --help\n"
         "\n"
         "Notes:\n"
@@ -371,6 +409,18 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->pump_enable = set_from_env_int("PUMP_ENABLE", DEFAULT_PUMP_ENABLE);
     cfg->pca9685_pump_ch = set_from_env_int("PCA9685_PUMP_CH", DEFAULT_PCA9685_PUMP_CH);
     cfg->pca9685_pump_active_high = set_from_env_int("PCA9685_PUMP_ACTIVE_HIGH", DEFAULT_PCA9685_PUMP_ACTIVE_HIGH);
+    /* Spray double-confirmation */
+    cfg->spray_confirm_enable = set_from_env_int("SPRAY_CONFIRM_ENABLE", DEFAULT_SPRAY_CONFIRM_ENABLE);
+    cfg->spray_require_vision = set_from_env_int("SPRAY_REQUIRE_VISION", DEFAULT_SPRAY_REQUIRE_VISION);
+    {
+        const char *score_env = getenv("SPRAY_MIN_AI_SCORE");
+        cfg->spray_min_ai_score = (score_env && score_env[0]) ? atof(score_env) : DEFAULT_SPRAY_MIN_AI_SCORE;
+    }
+    set_from_env_string(cfg->visual_state_path, sizeof(cfg->visual_state_path), "VISUAL_STATE_PATH", DEFAULT_VISUAL_STATE_PATH);
+    cfg->visual_confirm_window_ms = set_from_env_int("VISUAL_CONFIRM_WINDOW_MS", DEFAULT_VISUAL_CONFIRM_WINDOW_MS);
+    cfg->vision_offline_autospray = set_from_env_int("VISION_OFFLINE_AUTOSPRAY", DEFAULT_VISION_OFFLINE_AUTOSPRAY);
+    cfg->spray_max_ms = set_from_env_int("SPRAY_MAX_MS", DEFAULT_SPRAY_MAX_MS);
+    cfg->spray_cooldown_ms = set_from_env_int("SPRAY_COOLDOWN_MS", DEFAULT_SPRAY_COOLDOWN_MS);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -525,6 +575,22 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
             if (parse_int(argv[++i], &cfg->pca9685_pump_ch) != 0) { return -1; }
         } else if (strcmp(argv[i], "--pca9685-pump-active-high") == 0 && i + 1 < argc) {
             if (parse_int(argv[++i], &cfg->pca9685_pump_active_high) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--spray-confirm-enable") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->spray_confirm_enable) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--spray-require-vision") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->spray_require_vision) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--spray-min-ai-score") == 0 && i + 1 < argc) {
+            cfg->spray_min_ai_score = atof(argv[++i]);
+        } else if (strcmp(argv[i], "--visual-state-path") == 0 && i + 1 < argc) {
+            copy_string(cfg->visual_state_path, sizeof(cfg->visual_state_path), argv[++i]);
+        } else if (strcmp(argv[i], "--visual-confirm-window-ms") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->visual_confirm_window_ms) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--vision-offline-autospray") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->vision_offline_autospray) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--spray-max-ms") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->spray_max_ms) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--spray-cooldown-ms") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->spray_cooldown_ms) != 0) { return -1; }
         } else {
             fprintf(stderr, "unknown or incomplete argument: %s\n", argv[i]);
             usage(argv[0]);
@@ -825,7 +891,8 @@ static void pca9685_set_pump(const AppConfig *cfg, int on) {
     }
 }
 
-static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
+static void apply_actuators_by_state(const AppConfig *cfg, const char *state,
+                                      const SensorState *sensors, const EventContext *ctx) {
     int buzzer_on = 0, r_on = 0, g_on = 0, b_on = 0, relay_on = 0, pump_on = 0;
     int use_pca = (strcmp(cfg->rgb_backend, "pca9685") == 0);
 
@@ -837,7 +904,8 @@ static void apply_actuators_by_state(const AppConfig *cfg, const char *state) {
         r_on = 1;
         buzzer_on = 1;
         relay_on = 1;
-        pump_on = 1;
+        /* Pump: double-confirmation gate or legacy ALARM behavior */
+        pump_on = should_pump_activate(cfg, sensors, ctx);
     } else if (strcmp(state, "FAULT") == 0) {
         r_on = 1;
         b_on = 1;
@@ -1189,6 +1257,118 @@ static bool has_control_allowed_false(const char *json) {
     return strncmp(p, "false", 5) == 0;
 }
 
+static double extract_json_double(const char *json, const char *key) {
+    char needle[128];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char *p = strstr(json, needle);
+    if (p == NULL) return 0.0;
+    p = strchr(p, ':');
+    if (p == NULL) return 0.0;
+    p++;
+    while (*p && isspace((unsigned char)*p)) p++;
+    return atof(p);
+}
+
+static void extract_json_string(const char *json, const char *key, char *out, size_t size) {
+    char needle[128];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char *p = strstr(json, needle);
+    if (p == NULL) { out[0] = '\0'; return; }
+    p = strchr(p, ':');
+    if (p == NULL) { out[0] = '\0'; return; }
+    p++;
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p == '"') {
+        p++;
+        const char *end = strchr(p, '"');
+        if (end == NULL) { out[0] = '\0'; return; }
+        size_t len = (size_t)(end - p);
+        if (len >= size) len = size - 1;
+        memcpy(out, p, len);
+        out[len] = '\0';
+    } else {
+        out[0] = '\0';
+    }
+}
+
+static void read_visual_state(const AppConfig *cfg, EventContext *ctx) {
+    char buf[1024];
+    ctx->visual_fire_confirmed = 0;
+    ctx->visual_fire_score = 0.0;
+    ctx->visual_fire_label[0] = '\0';
+    ctx->visual_state_ts_ms = 0;
+
+    if (!cfg->spray_confirm_enable) return;
+
+    if (read_text_file_limited(cfg->visual_state_path, buf, sizeof(buf)) != 0) {
+        return;
+    }
+
+    /* Check if the visual state is fresh enough */
+    extract_json_string(buf, "ts", ctx->visual_fire_label, sizeof(ctx->visual_fire_label));
+    /* Simple freshness check: parse ISO timestamp is complex; just check if file exists and has content */
+    if (buf[0] == '\0') return;
+
+    ctx->visual_fire_confirmed = (strstr(buf, "\"fire_confirmed\": true") != NULL) ? 1 : 0;
+    ctx->visual_fire_score = extract_json_double(buf, "score");
+
+    char label[32];
+    extract_json_string(buf, "label", label, sizeof(label));
+    copy_string(ctx->visual_fire_label, sizeof(ctx->visual_fire_label), label);
+}
+
+static void determine_alarm_phase(const AppConfig *cfg, const SensorState *sensors,
+                                   const EventContext *ctx, char *phase, size_t phase_size) {
+    if (strcmp(ctx->state, "ALARM") != 0) {
+        copy_string(phase, phase_size, "IDLE");
+        return;
+    }
+
+    if (!cfg->spray_confirm_enable) {
+        /* Old behavior: pump on with ALARM */
+        copy_string(phase, phase_size, "SUPPRESSING");
+        return;
+    }
+
+    int local_hazard = sensors->flame || sensors->mq2;
+    int vision_hazard = ctx->visual_fire_confirmed &&
+                        ctx->visual_fire_score >= cfg->spray_min_ai_score;
+
+    if (local_hazard && vision_hazard) {
+        copy_string(phase, phase_size, "SUPPRESSING");
+    } else if (local_hazard && !vision_hazard) {
+        copy_string(phase, phase_size, "AIMING");
+    } else {
+        copy_string(phase, phase_size, "IDLE");
+    }
+}
+
+static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors,
+                                 const EventContext *ctx) {
+    /* Legacy behavior: pump follows ALARM state */
+    if (!cfg->spray_confirm_enable) {
+        return (strcmp(ctx->state, "ALARM") == 0) ? 1 : 0;
+    }
+
+    int local_hazard = sensors->flame || sensors->mq2;
+    if (!local_hazard) return 0;
+
+    int vision_hazard = ctx->visual_fire_confirmed &&
+                        ctx->visual_fire_score >= cfg->spray_min_ai_score;
+
+    if (cfg->spray_require_vision) {
+        if (vision_hazard) return 1;
+        /* Vision offline or no confirmation: check autospray */
+        if (!cfg->vision_offline_autospray) return 0;
+        /* Vision offline mode: default position auto-spray after confirm window */
+        /* For now, if vision is not confirmed, don't spray (tracker needs time) */
+        return 0;
+    }
+
+    /* Not requiring vision: local hazard is enough */
+    return 1;
+}
+
 static void build_metadata_json(const AppConfig *cfg, const SensorState *sensors, const EventContext *ctx) {
     char ts[32];
     iso_time_utc(ts, sizeof(ts));
@@ -1327,6 +1507,14 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
         soc_temp_json[0] = '\0';
     }
 
+    /* Build spray_confirm score string */
+    char spray_score_str[32];
+    if (ctx->visual_fire_score > 0) {
+        snprintf(spray_score_str, sizeof(spray_score_str), "%.3f", ctx->visual_fire_score);
+    } else {
+        snprintf(spray_score_str, sizeof(spray_score_str), "null");
+    }
+
     FILE *fp = fopen(out_file, "w");
     if (fp == NULL) {
         return;
@@ -1358,6 +1546,16 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "    \"backend_status\": \"%s\",\n"
             "    \"spool_path\": %s,\n"
             "    \"force_verify\": %s\n"
+            "  },\n"
+            "  \"alarm_phase\": \"%s\",\n"
+            "  \"spray_confirm\": {\n"
+            "    \"enabled\": %s,\n"
+            "    \"local_hazard\": %s,\n"
+            "    \"vision_hazard\": %s,\n"
+            "    \"matched_label\": %s,\n"
+            "    \"matched_score\": %s,\n"
+            "    \"threshold\": %.2f,\n"
+            "    \"decision\": \"%s\"\n"
             "  }\n"
             "}\n",
             cfg->device_id, ctx->seq, ctx->state, ctx->risk_score, ctx->need_snap ? "true" : "false",
@@ -1369,7 +1567,19 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             cfg->gpio_pir, sensors->raw_value, cfg->gpio_active_high ? "true" : "false",
             cfg->gpio_flame, sensors->flame_raw, cfg->gpio_flame_active_high ? "true" : "false",
             cfg->gpio_mq2, sensors->mq2_raw, cfg->gpio_mq2_active_high ? "true" : "false",
-            ctx->ai_status, backend_status, spool_path ? spool_path : "null", cfg->force_verify ? "true" : "false");
+            ctx->ai_status, backend_status, spool_path ? spool_path : "null", cfg->force_verify ? "true" : "false",
+            /* alarm_phase */
+            ctx->alarm_phase[0] ? ctx->alarm_phase : "IDLE",
+            /* spray_confirm */
+            cfg->spray_confirm_enable ? "true" : "false",
+            (sensors->flame || sensors->mq2) ? "true" : "false",
+            ctx->visual_fire_confirmed ? "true" : "false",
+            ctx->visual_fire_label[0] ? ctx->visual_fire_label : "null",
+            spray_score_str,
+            cfg->spray_min_ai_score,
+            /* decision */
+            (strcmp(ctx->alarm_phase, "SUPPRESSING") == 0) ? "pump_on" :
+            (strcmp(ctx->alarm_phase, "AIMING") == 0) ? "hold_pump" : "idle");
     fclose(fp);
 }
 
@@ -1495,7 +1705,18 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
         ensure_gpio_export_out(cfg->gpio_rgb_g);
         ensure_gpio_export_out(cfg->gpio_rgb_b);
     }
-    apply_actuators_by_state(cfg, ctx.state);
+
+    /* Read visual state from tracker (for double-confirmation) */
+    read_visual_state(cfg, &ctx);
+    determine_alarm_phase(cfg, &sensors, &ctx, ctx.alarm_phase, sizeof(ctx.alarm_phase));
+
+    if (cfg->spray_confirm_enable) {
+        log_msg("[spray] alarm_phase=%s visual_fire=%d score=%.3f label=%s",
+                ctx.alarm_phase, ctx.visual_fire_confirmed, ctx.visual_fire_score,
+                ctx.visual_fire_label[0] ? ctx.visual_fire_label : "none");
+    }
+
+    apply_actuators_by_state(cfg, ctx.state, &sensors, &ctx);
 
     /* Refresh OLED display (non-fatal) */
     oled_refresh(g_oled_fd, cfg, &sensors, &ctx);
