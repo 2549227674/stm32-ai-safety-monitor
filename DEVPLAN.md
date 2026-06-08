@@ -99,6 +99,7 @@ Task12 网络优化：已完成全部子任务。
 - Task12-F: 全无线热点链路验证通过（三台设备同一热点，直连无需 portproxy）。
 - Task12-G: 全无线自启动与代理清理，重启回归通过。
 - Task12-H: 文档同步收口。
+- Task12-I: OPi5 Qwen3-VL 真实 AI 自启动（systemd enabled，默认 qwen3vl 非 mock，重启回归通过）。
 - 当前网络主线：全无线优先。回退：Windows portproxy / 全有线。
 - 下一步：Task09 最终演示脚本与证据包整理。
 - 证据：`tests/opi5/2026-06-08_opi5_usb_wifi_rtl8188eu.md`、`tests/imx6ull/2026-06-08_imx6ull_onboard_rtl8723bu_wifi_retry.md`、`tests/integration/2026-06-08_*wireless*.md`。
