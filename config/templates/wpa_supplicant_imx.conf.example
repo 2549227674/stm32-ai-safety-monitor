@@ -1,0 +1,18 @@
+# wpa_supplicant configuration for i.MX6ULL onboard RTL8723BU WiFi
+# Copy to /etc/wpa_supplicant_imx.conf on i.MX and fill in real values
+# Do NOT commit the real file to the repository
+
+ctrl_interface=/var/run/wpa_supplicant
+ap_scan=1
+update_config=0
+country=CN
+
+network={
+    ssid="YOUR_HOTSPOT_SSID"
+    psk="YOUR_HOTSPOT_PASSWORD"
+    key_mgmt=WPA-PSK
+    proto=RSN WPA
+    pairwise=CCMP TKIP
+    group=CCMP TKIP
+    scan_ssid=1
+}
