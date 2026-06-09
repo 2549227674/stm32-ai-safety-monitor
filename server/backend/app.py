@@ -7,7 +7,12 @@ from flask_cors import CORS
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 
-from database import init_db, insert_event, insert_image, list_events, get_latest_event
+from database import (
+    init_db, insert_event, insert_image, list_events, get_latest_event,
+    upsert_device_status, get_device_status, insert_telemetry_batch,
+    get_telemetry_series, insert_ai_observation, get_latest_ai_observation,
+    get_thresholds, upsert_threshold, insert_alert, list_alerts,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -139,7 +144,231 @@ def create_app():
     def uploaded_file(filename):
         return send_from_directory(UPLOAD_DIR, filename)
 
+    # --- Device heartbeat & status ---
+
+    @app.post("/api/devices/heartbeat")
+    def device_heartbeat():
+        payload = request.get_json(silent=True)
+        if not payload or not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "JSON body required"}), 400
+        device_id = payload.get("device_id")
+        if not device_id:
+            return jsonify({"ok": False, "error": "device_id required"}), 400
+        upsert_device_status(device_id, payload)
+        return jsonify({"ok": True, "device_id": device_id})
+
+    @app.get("/api/devices")
+    def list_devices():
+        devices = get_device_status()
+        for d in devices:
+            d["online"] = _is_online(d.get("last_seen_at"))
+        return jsonify({"ok": True, "devices": devices})
+
+    @app.get("/api/devices/<device_id>")
+    def get_device(device_id):
+        d = get_device_status(device_id)
+        if not d:
+            return jsonify({"ok": False, "error": "device not found"}), 404
+        d["online"] = _is_online(d.get("last_seen_at"))
+        return jsonify({"ok": True, "device": d})
+
+    # --- Telemetry ---
+
+    @app.post("/api/telemetry/batch")
+    def telemetry_batch():
+        payload = request.get_json(silent=True)
+        if not payload or not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "JSON body required"}), 400
+        device_id = payload.get("device_id")
+        if not device_id:
+            return jsonify({"ok": False, "error": "device_id required"}), 400
+        window = payload.get("window", {})
+        samples = payload.get("samples", [])
+        summary = payload.get("summary", {})
+        insert_telemetry_batch(
+            device_id,
+            window.get("start"),
+            window.get("end"),
+            payload,
+            samples,
+        )
+        _check_telemetry_alerts(device_id, summary)
+        return jsonify({"ok": True, "device_id": device_id, "sample_count": len(samples)})
+
+    @app.get("/api/telemetry/series")
+    def telemetry_series():
+        device_id = request.args.get("device_id")
+        metric = request.args.get("metric")
+        seconds = int(request.args.get("seconds", 600))
+        if not device_id or not metric:
+            return jsonify({"ok": False, "error": "device_id and metric required"}), 400
+        points = get_telemetry_series(device_id, metric, seconds)
+        threshold = _get_threshold_for_metric(device_id, metric)
+        return jsonify({"ok": True, "device_id": device_id, "metric": metric, "points": points, "threshold": threshold})
+
+    # --- AI observations ---
+
+    @app.post("/api/ai/observations")
+    def create_ai_observation():
+        payload = request.get_json(silent=True)
+        if not payload or not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "JSON body required"}), 400
+        device_id = payload.get("device_id")
+        if not device_id:
+            return jsonify({"ok": False, "error": "device_id required"}), 400
+        obs_id = insert_ai_observation(payload)
+        return jsonify({"ok": True, "id": obs_id, "device_id": device_id}), 201
+
+    @app.get("/api/ai/observations/latest")
+    def latest_ai_observation():
+        device_id = request.args.get("device_id")
+        if not device_id:
+            return jsonify({"ok": False, "error": "device_id required"}), 400
+        obs = get_latest_ai_observation(device_id)
+        return jsonify({"ok": True, "device_id": device_id, "observation": obs})
+
+    # --- Thresholds ---
+
+    @app.get("/api/thresholds")
+    def get_device_thresholds():
+        device_id = request.args.get("device_id", "default")
+        t = get_thresholds(device_id)
+        if not t:
+            t = _default_thresholds()
+        return jsonify({"ok": True, "device_id": device_id, "thresholds": t})
+
+    @app.put("/api/thresholds")
+    def set_threshold():
+        payload = request.get_json(silent=True)
+        if not payload or not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "JSON body required"}), 400
+        device_id = payload.get("device_id", "default")
+        thresholds = payload.get("thresholds", {})
+        for metric, config in thresholds.items():
+            upsert_threshold(device_id, metric, config)
+        return jsonify({"ok": True, "device_id": device_id})
+
+    # --- Alerts ---
+
+    @app.get("/api/alerts")
+    def get_alerts():
+        device_id = request.args.get("device_id")
+        limit = int(request.args.get("limit", 50))
+        alerts = list_alerts(device_id, limit)
+        return jsonify({"ok": True, "alerts": alerts})
+
+    # --- Video proxy ---
+
+    @app.get("/api/video/stream")
+    def video_stream():
+        device_id = request.args.get("device_id")
+        if not device_id:
+            return jsonify({"ok": False, "error": "device_id required"}), 400
+        agent_url = _get_device_agent_url(device_id)
+        if not agent_url:
+            return jsonify({"ok": False, "error": "device agent not available"}), 503
+        import requests as req
+        try:
+            resp = req.get(f"{agent_url}/api/video/stream", stream=True, timeout=10)
+            return app.response_class(
+                resp.iter_content(chunk_size=4096),
+                content_type=resp.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame"),
+            )
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 503
+
+    @app.get("/api/video/snapshot.jpg")
+    def video_snapshot():
+        device_id = request.args.get("device_id")
+        if not device_id:
+            return jsonify({"ok": False, "error": "device_id required"}), 400
+        agent_url = _get_device_agent_url(device_id)
+        if not agent_url:
+            return jsonify({"ok": False, "error": "device agent not available"}), 503
+        import requests as req
+        try:
+            resp = req.get(f"{agent_url}/api/video/snapshot.jpg", timeout=10)
+            return app.response_class(resp.content, content_type="image/jpeg")
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 503
+
+    # --- SSE stream ---
+
+    @app.get("/api/stream/events")
+    def sse_stream():
+        device_id = request.args.get("device_id")
+        import time
+        def generate():
+            while True:
+                data = _build_tick(device_id)
+                yield f"data: {json.dumps(data)}\n\n"
+                time.sleep(1)
+        return app.response_class(generate(), mimetype="text/event-stream")
+
     return app
+
+
+def _is_online(last_seen_at, threshold_sec=15):
+    if not last_seen_at:
+        return False
+    from datetime import datetime, timezone
+    try:
+        seen = datetime.fromisoformat(last_seen_at.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - seen).total_seconds() < threshold_sec
+    except Exception:
+        return False
+
+
+def _get_device_agent_url(device_id):
+    import os
+    url = os.environ.get("OPI5_DEVICE_AGENT_URL")
+    if url:
+        return url.rstrip("/")
+    d = get_device_status(device_id)
+    if d:
+        status = d.get("status", {})
+        hb = status.get("heartbeat", {})
+        if hb.get("agent_url"):
+            return hb["agent_url"].rstrip("/")
+    return None
+
+
+def _default_thresholds():
+    return {
+        "risk_score": {"warn": 4, "danger": 7, "unit": "score"},
+        "cpu_temp_c": {"warn": 75, "danger": 85, "unit": "°C"},
+        "mpu6500.vibration_score": {"warn": 4, "danger": 7, "unit": "score"},
+        "smoke_score": {"warn": 3, "danger": 6, "unit": "score"},
+    }
+
+
+def _get_threshold_for_metric(device_id, metric):
+    t = get_thresholds(device_id)
+    if metric in t:
+        return t[metric]
+    defaults = _default_thresholds()
+    return defaults.get(metric)
+
+
+def _check_telemetry_alerts(device_id, summary):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    thresholds = get_thresholds(device_id) or _default_thresholds()
+    risk = summary.get("risk_score", {})
+    if risk.get("latest", 0) >= thresholds.get("risk_score", {}).get("danger", 7):
+        insert_alert({"device_id": device_id, "timestamp": now, "level": "danger", "metric": "risk_score", "message": f"Risk score {risk['latest']} exceeds danger threshold"})
+
+
+def _build_tick(device_id):
+    from datetime import datetime, timezone
+    return {
+        "type": "tick",
+        "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "device": get_device_status(device_id) if device_id else None,
+        "latest_event": get_latest_event(),
+        "latest_ai_observation": get_latest_ai_observation(device_id) if device_id else None,
+        "alerts": list_alerts(device_id, 5) if device_id else [],
+    }
 
 
 def normalize_event(payload, source):
