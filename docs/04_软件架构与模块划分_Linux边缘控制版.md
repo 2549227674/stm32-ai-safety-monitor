@@ -2,45 +2,39 @@
 
 ## 4.1 总体软件架构
 
-```text
-edge/imx6ull-controller/        edge/opi5-ai/               server/backend/
-  imx_safetyd                      opi5_ai_service             Flask app.py
-  gpio_input                       /health                     SQLite database.py
-  pca9685_servo                    /api/infer/vision           Dashboard JS/HTML
-  mos_output                       RKNN model wrapper          /api/events
-  v4l2_capture                     optional llm_explain        /api/images
-  safety_fsm
-  event_client
-```
-
-核心原则：本地安全主控进程是唯一执行器决策点；AI 服务与 Flask 不直接控制硬件。
-
-### OPi5 临时主控架构（i.MX6ULL 故障后）
-
-由于 i.MX6ULL 末期供电/启动异常，控制层临时整合到 OPi5。OPi5 同时运行两个独立进程：
+当前演示主线为 OPi5 一板双进程架构：
 
 ```text
 edge/opi5-controller/           edge/opi5-ai/               server/backend/
-  opi5_safetyd                     opi5_ai_service             Flask app.py
-  gpio_input (libgpiod/sysfs)      /health                     SQLite database.py
-  pca9685_output                   /api/infer/vision           Dashboard JS/HTML
-  safety_fsm                       RKNN/Qwen3-VL               /api/events
-  event_client                     control_allowed=false       /api/images
+  opi5_safetyd                    opi5_ai_service             Flask app.py
+  gpio_input                      /health                     SQLite database.py
+  pwm_servo                       /api/infer/vision           Dashboard JS/HTML
+  gpio_rgb_buzzer_mos             Qwen3-VL / mock             /api/events
+  oled_ssd1306                    control_allowed=false       /api/images
+  safety_fsm
+  event_client
   spool
-  oled_ssd1306
 ```
+
+核心原则：本地安全主控进程 `opi5_safetyd` 是唯一执行器决策点；AI 服务 `opi5_ai_service` 与 Flask 不直接控制硬件。
 
 - `opi5_safetyd`：本地安全闭环，GPIO 传感器 → 状态机 → 执行器，断网/断 AI 仍可运行
 - `opi5_ai_service`：AI 推理，只返回 `risk_hint`，`control_allowed=false`
 - 两个进程独立，互不依赖；AI 离线时安全闭环仍依据本地传感器进入安全态
 
+**执行器后端说明**：OPi5 Task13 验证中 PCA9685 确认为模块问题（4 个均未 ACK），当前主线执行器改用 GPIO/PWM 直控。PCA9685 保留为后续更换模块后的可选后端，不作为当前主线依赖。
+
+> 原计划第二版采用 i.MX6ULL + OPi5 双板架构，因 i.MX6ULL 末期供电/启动异常，当前主线改为 OPi5 一板双进程。历史 i.MX 架构见下文 §4.3。
+
 ## 4.2 仓库目录结构
 
 见 `CANONICAL_DECISIONS.md` 的统一目录树。新代码放在 `edge/`、`common/`、`scripts/`、`tests/`，旧代码迁移到 `legacy/`。
 
-## 4.3 i.MX6ULL 控制进程 `imx_safetyd`
+## 4.3 历史 i.MX6ULL 控制进程 `imx_safetyd`（已完成验证，不再部署）
 
-建议先用 C/C++ 实现底层硬件控制和 V4L2 抓拍，必要时配合 Python 辅助脚本。MVP 可采用单进程多模块架构。
+> 本节为历史 i.MX 阶段的软件架构记录，保留为工程迭代证据。当前主线控制进程已迁移到 `opi5_safetyd`（见 §4.1）。
+
+原计划用 C/C++ 实现底层硬件控制和 V4L2 抓拍，必要时配合 Python 辅助脚本。MVP 可采用单进程多模块架构。
 
 | 模块 | 职责 | 周期/触发 |
 |---|---|---|
@@ -106,18 +100,18 @@ Task06 已按最小兼容方案完成：不修改 SQLite schema，继续由 `eve
 
 `common/contracts/README.md` 只作为开发入口，权威字段表在 `docs/07_端边HTTP_JSON_Contract.md`。
 
-## 4.7 WSL 交叉编译与部署
+## 4.7 编译与部署
 
-命令骨架：
+### OPi5 当前主控：原生 gcc 编译
+
+OPi5 `opi5_safetyd` 使用原生 gcc 编译，无需交叉编译工具链：
 
 ```bash
-source <WSL_SDK_ENV_TODO_FILL>
-$CC --version
-mkdir -p build/imx6ull
-$CC edge/imx6ull-controller/src/hello.c -o build/imx6ull/hello_imx6ull
-scp build/imx6ull/hello_imx6ull <IMX_USER_TODO_FILL>@<IMX_IP_TODO_FILL>:/opt/edge-ai-safety-monitor/
-ssh <IMX_USER_TODO_FILL>@<IMX_IP_TODO_FILL> /opt/edge-ai-safety-monitor/hello_imx6ull
+scripts/build_opi5_controller.sh
+scripts/deploy_opi5.sh
 ```
+
+### 历史 i.MX 阶段：WSL 交叉编译（已完成验证，不再部署）
 
 Task02 已验证 WSL 交叉编译与 i.MX6ULL 板端运行：本 SDK 无 `environment-setup-*`，通过
 `config/inventory.yaml` 的 `imx6ull.cc` 指向 `arm-buildroot-linux-gnueabihf-gcc`；`hello_imx6ull`
@@ -126,24 +120,19 @@ Task02 已验证 WSL 交叉编译与 i.MX6ULL 板端运行：本 SDK 无 `enviro
 
 ## 4.8 systemd 服务
 
-最终 i.MX6ULL 控制进程以 systemd 管理：
+### OPi5 当前主控：两进程独立 systemd 管理
 
-```ini
-[Unit]
-Description=Edge AI Safety Monitor i.MX6ULL Controller
-After=network-online.target
-Wants=network-online.target
+OPi5 上 `opi5_safetyd` 和 `opi5_ai_service` 各自独立 systemd service：
 
-[Service]
-Type=simple
-ExecStart=/opt/edge-ai-safety-monitor/imx_safetyd --config /etc/edge-ai-safety-monitor/imx.yaml
-Restart=always
-RestartSec=2
-WatchdogSec=10
+- `opi5-safetyd.service`：本地安全闭环进程
+- `opi5-ai-qwen3vl.service`：AI 推理服务（systemd enabled，默认 Qwen3-VL 真实 AI，mock 保留为手动回退）
 
-[Install]
-WantedBy=multi-user.target
-```
+两个 service 互不依赖；`opi5_ai_service` 停止时 `opi5_safetyd` 仍能依据本地传感器运行。
+
+### 历史 i.MX 阶段：systemd / init.d（已完成验证，不再部署）
+
+历史 i.MX 阶段使用 BusyBox/SysV `init.d/S99imx-safetyd` 管理进程，支持 start/stop/restart/status。
+systemd 模板已入库但板端无 systemctl，未在板端启用。证据见 `tests/integration/2026-06-07_imx_safetyd_initd.md`。
 
 ## 4.9 日志与配置
 
