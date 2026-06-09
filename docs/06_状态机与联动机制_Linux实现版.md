@@ -87,7 +87,9 @@
 | ALARM | 1 | R | 按规则 | 按规则 |
 | FAULT | 间歇 | 紫/黄 | 0 | 0 |
 
-P0 起**真实驱动蜂鸣器（gpio122 + 三极管）与 RGB（gpio121/123/124）**：NORMAL=绿、VERIFY=蓝、ALARM=红+蜂鸣器响、FAULT=紫/黄间歇。继电器/水泵仍为 P1/P2，未真实驱动。AI 服务/Flask 不控制执行器；只有本地安全主控进程 `opi5_safetyd` 控制执行器，`control_allowed=false`。
+P0 起**真实驱动蜂鸣器（GPIO35 active LOW + 三极管）与 RGB（GPIO48/50/52 active HIGH）**：NORMAL=绿、VERIFY=蓝、ALARM=红+蜂鸣器响、FAULT=紫/黄间歇。继电器/水泵仍为 P1/P2，未真实驱动。AI 服务/Flask 不控制执行器；只有本地安全主控进程 `opi5_safetyd` 控制执行器，`control_allowed=false`。
+
+> 历史 i.MX 阶段使用 gpio122（buzzer）、gpio121/123/124（RGB-R/G/B），已在 Task13 迁移到 OPi5 GPIO35/48/50/52。
 
 > **[CLAUDE_CODE_TODO | MEASURE]** 标定 P0 误报与阈值
 > - 期望产物/操作：分别记录门开关、人体触发、打火机近火焰、烟雾近 MQ-2 四类场景的 sensors 与 risk_score；按误报调整加分。
