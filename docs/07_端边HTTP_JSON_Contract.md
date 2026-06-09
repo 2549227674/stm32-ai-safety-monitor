@@ -267,4 +267,109 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 | `WARN` | `soc_temp >= SOC_TEMP_WARN_C` | 过热警告 |
 | `UNKNOWN` | soc_temp 读取失败或禁用 | 温度未知 |
 
+## 7.10 OPi5 低速视觉追踪接口（Task12 新增）
+
+### POST /api/track/frame
+
+低延迟追踪端点，i.MX `imx_tracker` 调用，返回目标 bbox 和视觉偏移提示。
+
+请求：`multipart/form-data`
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `image` | file (JPEG) | 是 | 摄像头抓拍帧 |
+| `metadata` | JSON string | 是 | `{device_id, frame_id, resolution: {width, height}}` |
+
+响应示例：
+
+```json
+{
+  "ok": true,
+  "contract_version": "1.1",
+  "frame_id": 1,
+  "latency_ms": 42,
+  "objects": [
+    {"label": "fire", "score": 0.83, "bbox": [120, 80, 260, 220]}
+  ],
+  "best_fire": {"label": "fire", "score": 0.83, "bbox": [120, 80, 260, 220]},
+  "tracking_hint": {
+    "target_label": "fire",
+    "target_center": [190, 150],
+    "frame_center": [320, 240],
+    "offset_px": [-130, -90],
+    "confidence": 0.83
+  },
+  "control_allowed": false
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `objects[].bbox` | [x1,y1,x2,y2] | 目标检测框，像素坐标 |
+| `best_fire` | object/null | 最高置信度的 fire/smoke 目标 |
+| `tracking_hint.target_center` | [x,y] | 目标中心像素坐标 |
+| `tracking_hint.frame_center` | [x,y] | 画面中心像素坐标 |
+| `tracking_hint.offset_px` | [dx,dy] | 目标相对画面中心偏移（像素） |
+| `tracking_hint.confidence` | float | 目标置信度 |
+
+约束：
+- `tracking_hint` 是**感知提示**，不是动作命令
+- 不得包含 `pan_delta_deg` / `tilt_delta_deg` / `pump` / `relay` 等控制字段
+- `control_allowed` 必须为 `false`
+- 角度增量由 i.MX `imx_tracker` 本地计算并限幅
+
+### GET /api/track/stream
+
+低帧率标注 MJPEG 流，Dashboard 展示用。
+
+- 格式：`multipart/x-mixed-replace; boundary=frame`
+- 帧率：≤5 fps，640×480
+- 标注：bbox 叠框 + label + score
+- **仅用于展示，不作为执行器控制源**
+
+## 7.11 i.MX 双确认喷水事件字段（Task12 新增）
+
+事件 `raw_json` 可包含 `alarm_phase` 和 `spray_confirm` 字段：
+
+```json
+{
+  "alarm_phase": "AIMING",
+  "spray_confirm": {
+    "enabled": true,
+    "local_hazard": true,
+    "vision_hazard": false,
+    "matched_label": null,
+    "matched_score": null,
+    "threshold": 0.50,
+    "decision": "hold_pump"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `alarm_phase` | string | `IDLE` / `AIMING` / `SUPPRESSING` |
+| `spray_confirm.enabled` | bool | 双确认是否启用 |
+| `spray_confirm.local_hazard` | bool | 本地传感器触发（flame \|\| mq2） |
+| `spray_confirm.vision_hazard` | bool | 视觉确认 fire/smoke 且 score >= 阈值 |
+| `spray_confirm.matched_label` | string/null | 视觉匹配的标签 |
+| `spray_confirm.matched_score` | float/null | 视觉匹配的分数 |
+| `spray_confirm.threshold` | float | 配置的最小 AI 分数阈值 |
+| `spray_confirm.decision` | string | `pump_on` / `hold_pump` / `idle` |
+
+喷水真值表：
+
+| local_hazard | vision_hazard | pump | alarm_phase |
+|:---:|:---:|:---:|:---:|
+| 1 | 1 | ON | SUPPRESSING |
+| 1 | 0 | OFF | AIMING |
+| 0 | 1 | OFF | IDLE |
+| 0 | 0 | OFF | IDLE |
+
+安全约束：
+- `pump` 仍只由 i.MX 本地 `imx_safetyd` 控制
+- AI/OPi5/Flask 不直接控制 pump
+- `SPRAY_MAX_MS` 限时强制停泵
+- `SPRAY_COOLDOWN_MS` 冷却期不再触发
+
 Task11-C 已验证通过，证据见 `tests/imx6ull/2026-06-07_p1_soc_temp_health.md`。

@@ -20,22 +20,23 @@
 | 工作目录 | WSL 原生目录 `/home/qbz415/SafetyMonitor`；不要再使用 `/mnt/c/program1/SafetyMonitor` 开发 |
 | 当前分支 | `migration/imx6ull-opi5-edge-ai` |
 | 最新迁移提交 | `9889e1d task12-i: update CLAUDE.md and DEVPLAN.md status`；Task12-I 已完成 |
-| 总体阶段 | 硬件 P0/P1、全无线网络、Qwen3-VL 真实 AI 自启动均已完成；进入最终演示脚本与证据包整理 |
-| 新主线 | i.MX6ULL Pro + Orange Pi 5 + Flask |
-| 旧主线 | STM32 + ESP32-CAM 归档为 legacy |
+| 总体阶段 | i.MX6ULL 末期故障，主控迁移至 OPi5；OPi5 临时一板双进程（安全闭环 + AI） |
+| 新主线 | OPi5 临时主控（opi5_safetyd + opi5_ai_service）+ Flask |
+| 旧主线 | i.MX6ULL + OPi5 双板架构（i.MX 已故障，目录保留为证据）；STM32 + ESP32-CAM 归档为 legacy |
 | 当前执行器 | 本地 Codex / Claude Code |
 | 首要目标 | Task09 最终演示脚本、证据包、报告/PPT 口径收口 |
 
 ## 2. 项目主线与三机角色
 
-主线为 `Edge AI Safety Monitor`：i.MX6ULL Pro 负责 Linux 本地安全控制、V4L2 抓拍与云台；
-Orange Pi 5 负责本地 RKNN 推理；Flask + SQLite + Dashboard 保留并扩展。
+主线为 `Edge AI Safety Monitor`。原计划 i.MX6ULL Pro 负责本地安全控制，OPi5 负责 AI 推理。
+由于 i.MX6ULL 末期供电/启动异常，临时切换为 OPi5 一板双进程。
 
 | 节点 | 角色 | 部署/入口 |
 |---|---|---|
-| PC / WSL | 代码编辑、交叉编译、模型转换准备、scp/ssh 部署 | `scripts/build_imx6ull.sh`、`scripts/deploy_*.sh` |
-| i.MX6ULL Pro | 本地安全控制、V4L2 抓拍、云台、上报事件 | `/opt/edge-ai-safety-monitor/` |
-| Orange Pi 5 | Qwen3-VL 2B 真实 AI 服务，systemd 自启动；mock 仅保留为手动故障回退 | `/opt/edge-ai-safety-monitor/opi5-ai/` |
+| PC / WSL | 代码编辑、scp/ssh 部署 | `scripts/build_opi5_controller.sh`、`scripts/deploy_opi5.sh` |
+| Orange Pi 5（临时主控） | 本地安全闭环 `opi5_safetyd` + AI 推理 `opi5_ai_service`，两进程独立 | `/opt/edge-ai-safety-monitor/` |
+| i.MX6ULL Pro | 已故障，目录保留为工程迭代证据 | 不再部署 |
+| Flask + SQLite + Dashboard | PC 上运行，事件存储与可视化 | `server/backend/` |
 
 真实地址 / SDK 路径 / 端口写在不入库的 `config/inventory.yaml`。
 

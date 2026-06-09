@@ -1,0 +1,18 @@
+[Unit]
+Description=OPi5 Edge Safety Monitor Daemon (local safety loop)
+After=network-online.target
+Wants=network-online.target
+# Does NOT require opi5-ai service -- safety loop works standalone
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/edge-ai-safety-monitor/opi5-safetyd.env
+ExecStart=/opt/edge-ai-safety-monitor/opi5_safetyd --mode loop
+Restart=always
+RestartSec=3
+WorkingDirectory=/opt/edge-ai-safety-monitor
+# Safety-critical: must restart on any failure
+WatchdogSec=30
+
+[Install]
+WantedBy=multi-user.target

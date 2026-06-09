@@ -19,37 +19,49 @@
 
 #include "bsp_oled_ssd1306.h"
 
-#define PROGRAM_NAME "imx_safetyd_c"
+#define PROGRAM_NAME "opi5_safetyd_c"
 #define CONTRACT_VERSION "1.0"
 #define DEFAULT_DEVICE_ID "labbox_001"
-#define DEFAULT_GPIO_PIR 117
+/* OPi5 RK3588S GPIO defaults — 2026-06-09 实测确认
+ * Override via env vars or CLI args. */
+#define DEFAULT_GPIO_PIR 139            /* pin 13, active HIGH, 已验证 */
 #define DEFAULT_GPIO_ACTIVE_HIGH 1
-#define DEFAULT_GPIO_FLAME 119
-#define DEFAULT_GPIO_FLAME_ACTIVE_HIGH 1
-#define DEFAULT_GPIO_MQ2 120
-#define DEFAULT_GPIO_MQ2_ACTIVE_HIGH 1
-#define DEFAULT_GPIO_RGB_R 121
+#define DEFAULT_GPIO_FLAME 28           /* pin 15, active LOW, 已验证 */
+#define DEFAULT_GPIO_FLAME_ACTIVE_HIGH 0
+#define DEFAULT_GPIO_MQ2 49             /* pin 19, active LOW, 已验证 (3.3V+调灵敏度) */
+#define DEFAULT_GPIO_MQ2_ACTIVE_HIGH 0
+#define DEFAULT_GPIO_RGB_R 48           /* pin 21, active HIGH, 已验证 */
 #define DEFAULT_GPIO_RGB_R_ACTIVE_HIGH 1
-#define DEFAULT_GPIO_BUZZER 122
+#define DEFAULT_GPIO_BUZZER 35          /* pin 26, active LOW, 已验证 */
 #define DEFAULT_GPIO_BUZZER_ACTIVE_HIGH 0
-#define DEFAULT_GPIO_RGB_G 123
+#define DEFAULT_GPIO_RGB_G 50           /* pin 23, active HIGH, 已验证 */
 #define DEFAULT_GPIO_RGB_G_ACTIVE_HIGH 1
-#define DEFAULT_GPIO_RGB_B 124
+#define DEFAULT_GPIO_RGB_B 52           /* pin 24, active HIGH, 已验证 */
 #define DEFAULT_GPIO_RGB_B_ACTIVE_HIGH 1
-#define DEFAULT_RGB_BACKEND "gpio"
-#define DEFAULT_PCA9685_BUS "/dev/i2c-0"
+#define DEFAULT_RGB_BACKEND "gpio"      /* PCA9685 不可用，GPIO 直控 */
+#define DEFAULT_PCA9685_BUS "/dev/i2c-5"
 #define DEFAULT_PCA9685_ADDR 0x40
 #define DEFAULT_PCA9685_RGB_R_CH 2
 #define DEFAULT_PCA9685_RGB_G_CH 3
 #define DEFAULT_PCA9685_RGB_B_CH 4
 #define DEFAULT_PCA9685_RGB_ON_DUTY 4095
 #define DEFAULT_PCA9685_RGB_OFF_DUTY 0
-#define DEFAULT_CAPTURE_DEVICE "/dev/video1"
+/* Water gun via MOS on pin 11 (GPIO138), active HIGH, 已验证 */
+#define DEFAULT_GPIO_WATER_GUN 138
+#define DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH 1
+/* Servo via OPi5 hardware PWM (pin 7 = PWM15, pwmchip4), 已验证 */
+#define DEFAULT_SERVO_PWM_CHIP 4
+#define DEFAULT_SERVO_PWM_CHANNEL 0
+#define DEFAULT_SERVO_PERIOD_NS 20000000
+#define DEFAULT_SERVO_PULSE_MIN_NS 500000
+#define DEFAULT_SERVO_PULSE_CENTER_NS 1500000
+#define DEFAULT_SERVO_PULSE_MAX_NS 2500000
+#define DEFAULT_CAPTURE_DEVICE "/dev/video0"
 #define DEFAULT_BASE_DIR "/opt/edge-ai-safety-monitor"
 #define DEFAULT_INTERVAL_SEC 2
 #define DEFAULT_MODE "once"
 #define DEFAULT_OLED_ENABLE 0
-#define DEFAULT_OLED_BUS "/dev/i2c-0"
+#define DEFAULT_OLED_BUS "/dev/i2c-5"    /* I2C5 pin 3/5, 已验证 */
 #define DEFAULT_OLED_ADDR 0x3C
 #define DEFAULT_RELAY_ENABLE 0
 #define DEFAULT_PCA9685_RELAY_CH 5
@@ -68,7 +80,7 @@
 #define DEFAULT_SPRAY_CONFIRM_ENABLE 0
 #define DEFAULT_SPRAY_REQUIRE_VISION 1
 #define DEFAULT_SPRAY_MIN_AI_SCORE 0.50
-#define DEFAULT_VISUAL_STATE_PATH "/run/imx_visual_state.json"
+#define DEFAULT_VISUAL_STATE_PATH "/run/opi5_visual_state.json"
 #define DEFAULT_VISUAL_CONFIRM_WINDOW_MS 1500
 #define DEFAULT_VISION_OFFLINE_AUTOSPRAY 1
 #define DEFAULT_SPRAY_MAX_MS 3000
@@ -746,14 +758,14 @@ static int copy_file(const char *src, const char *dst) {
 
 static int ensure_dirs(const AppConfig *cfg, AppPaths *paths) {
     memset(paths, 0, sizeof(*paths));
-    snprintf(paths->capture_dir, sizeof(paths->capture_dir), "%s/captures/imx-safetyd", cfg->base_dir);
-    snprintf(paths->spool_dir, sizeof(paths->spool_dir), "%s/spool/imx-safetyd", cfg->base_dir);
+    snprintf(paths->capture_dir, sizeof(paths->capture_dir), "%s/captures/opi5-safetyd", cfg->base_dir);
+    snprintf(paths->spool_dir, sizeof(paths->spool_dir), "%s/spool/opi5-safetyd", cfg->base_dir);
     snprintf(paths->pending_dir, sizeof(paths->pending_dir), "%s/pending", paths->spool_dir);
     snprintf(paths->sent_dir, sizeof(paths->sent_dir), "%s/sent", paths->spool_dir);
     snprintf(paths->run_dir, sizeof(paths->run_dir), "%s/run", cfg->base_dir);
     snprintf(paths->seq_file, sizeof(paths->seq_file), "%s/seq.txt", paths->spool_dir);
-    snprintf(paths->log_file, sizeof(paths->log_file), "%s/imx_safetyd.log", paths->run_dir);
-    snprintf(paths->status_file, sizeof(paths->status_file), "%s/imx_safetyd_status.json", paths->run_dir);
+    snprintf(paths->log_file, sizeof(paths->log_file), "%s/opi5_safetyd.log", paths->run_dir);
+    snprintf(paths->status_file, sizeof(paths->status_file), "%s/opi5_safetyd_status.json", paths->run_dir);
 
     if (mkdir_p(paths->capture_dir) != 0 || mkdir_p(paths->pending_dir) != 0 ||
         mkdir_p(paths->sent_dir) != 0 || mkdir_p(paths->run_dir) != 0) {
@@ -1578,7 +1590,7 @@ static void build_metadata_json(const AppConfig *cfg, const SensorState *sensors
             "  \"device_id\": \"%s\",\n"
             "  \"frame_id\": %d,\n"
             "  \"timestamp\": \"%s\",\n"
-            "  \"source\": \"imx_safetyd_c\",\n"
+            "  \"source\": \"opi5_safetyd_c\",\n"
             "  \"image_format\": \"jpeg\",\n"
             "  \"resolution\": {\"width\": 640, \"height\": 480},\n"
             "  \"sensors\": {\"door\": %d, \"pir\": %d, \"flame\": %d, \"mq2\": %d},\n"
@@ -1737,7 +1749,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             "  \"ai_result\": %s,\n"
             "  \"latency_ms\": {\"gpio\": %d, \"capture\": %d, \"ai\": %d, \"post\": %d, \"total\": %d},\n"
             "  \"diagnostics\": {\n"
-            "    \"program\": \"imx_safetyd_c\",\n"
+            "    \"program\": \"opi5_safetyd_c\",\n"
             "    \"gpio\": {\"pir_gpio\": %d, \"raw_value\": %d, \"active_high\": %s, \"flame_gpio\": %d, \"flame_raw\": %d, \"flame_active_high\": %s, \"mq2_gpio\": %d, \"mq2_raw\": %d, \"mq2_active_high\": %s},\n"
             "    \"ai_status\": \"%s\",\n"
             "    \"backend_status\": \"%s\",\n"
@@ -1830,7 +1842,7 @@ static void write_status_json(const AppPaths *paths, const EventContext *ctx, co
 
     fprintf(fp,
             "{\n"
-            "  \"program\": \"imx_safetyd_c\",\n"
+            "  \"program\": \"opi5_safetyd_c\",\n"
             "  \"last_seq\": %d,\n"
             "  \"last_state\": \"%s\",\n"
             "  \"last_pir\": %d,\n"

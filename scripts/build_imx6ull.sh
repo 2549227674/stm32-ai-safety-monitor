@@ -49,6 +49,10 @@ case "$TARGET_OR_SRC" in
     EXTRA_CFLAGS="-Iedge/imx6ull-controller/include"
     EXTRA_SRC="edge/imx6ull-controller/src/bsp_oled_ssd1306.c"
     ;;
+  imx_tracker)
+    SRC="edge/imx6ull-controller/src/imx_tracker.c"
+    OUT_NAME="${2:-imx_tracker}"
+    ;;
   *)
     SRC="$TARGET_OR_SRC"
     OUT_NAME="${2:-hello_imx6ull}"
