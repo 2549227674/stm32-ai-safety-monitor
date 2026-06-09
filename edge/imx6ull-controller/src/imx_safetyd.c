@@ -186,6 +186,8 @@ typedef struct {
     int actuator_rgb_b;
     int actuator_relay;
     int actuator_pump;
+    /* Spray decision snapshot (matches actual pump state) */
+    char spray_decision[32];
 } EventContext;
 
 typedef struct {
@@ -875,6 +877,10 @@ static void pca9685_set_rgb(const AppConfig *cfg, int r_on, int g_on, int b_on) 
     shell_quote(tool_path, q_tool, sizeof(q_tool));
 
     int lock_fd = pca9685_lock_acquire(cfg->pca9685_lock_path);
+    if (lock_fd < 0) {
+        log_msg("[pca9685] WARNING: lock acquire failed, skip RGB write");
+        return;
+    }
 
     snprintf(cmd, sizeof(cmd),
              "%s --bus %s --addr 0x%02x --channel %d --duty %d && "
@@ -904,6 +910,10 @@ static void pca9685_set_relay(const AppConfig *cfg, int on) {
     shell_quote(tool_path, q_tool, sizeof(q_tool));
 
     int lock_fd = pca9685_lock_acquire(cfg->pca9685_lock_path);
+    if (lock_fd < 0) {
+        log_msg("[pca9685] WARNING: lock acquire failed, skip relay write");
+        return;
+    }
     snprintf(cmd, sizeof(cmd), "%s --bus %s --addr 0x%02x --channel %d --duty %d",
              q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_relay_ch, duty);
     if (run_shell_command(cmd) != 0) {
@@ -926,6 +936,10 @@ static void pca9685_set_pump(const AppConfig *cfg, int on) {
     shell_quote(tool_path, q_tool, sizeof(q_tool));
 
     int lock_fd = pca9685_lock_acquire(cfg->pca9685_lock_path);
+    if (lock_fd < 0) {
+        log_msg("[pca9685] WARNING: lock acquire failed, skip pump write");
+        return;
+    }
     snprintf(cmd, sizeof(cmd), "%s --bus %s --addr 0x%02x --channel %d --duty %d",
              q_tool, q_bus, cfg->pca9685_addr, cfg->pca9685_pump_ch, duty);
     if (run_shell_command(cmd) != 0) {
@@ -963,6 +977,15 @@ static void apply_actuators_by_state(const AppConfig *cfg, const char *state,
     ctx->actuator_rgb_b = b_on;
     ctx->actuator_relay = relay_on;
     ctx->actuator_pump = pump_on;
+
+    /* Correct alarm_phase to match actual pump state */
+    if (strcmp(state, "ALARM") == 0) {
+        if (pump_on) {
+            copy_string(ctx->alarm_phase, sizeof(ctx->alarm_phase), "SUPPRESSING");
+        } else if (sensors->flame || sensors->mq2) {
+            copy_string(ctx->alarm_phase, sizeof(ctx->alarm_phase), "AIMING");
+        }
+    }
 
     /* Buzzer always on GPIO */
     write_gpio_output(cfg->gpio_buzzer, cfg->gpio_buzzer_active_high, buzzer_on);
@@ -1465,6 +1488,7 @@ static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors
             g_spray_active = 0;
             g_last_spray_stop_ms = now_ms();
         }
+        copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "idle");
         return 0;
     }
 
@@ -1474,6 +1498,7 @@ static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors
         if (!g_spray_active && g_last_spray_stop_ms > 0) {
             long long since_stop = now_ms() - g_last_spray_stop_ms;
             if (since_stop >= 0 && since_stop < cfg->spray_cooldown_ms) {
+                copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "cooldown");
                 return 0;
             }
         }
@@ -1484,13 +1509,16 @@ static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors
                 g_spray_active = 0;
                 g_last_spray_stop_ms = now_ms();
                 log_msg("[spray] max duration %dms reached, stopping pump", cfg->spray_max_ms);
+                copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "max_duration_stop");
                 return 0;
             }
+            copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "legacy_pump_on");
             return 1;
         }
         /* Start spray */
         g_spray_active = 1;
         g_last_spray_start_ms = now_ms();
+        copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "legacy_pump_on");
         return 1;
     }
 
@@ -1503,6 +1531,7 @@ static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors
             g_spray_active = 0;
             g_last_spray_stop_ms = now_ms();
         }
+        copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "hold_pump");
         return 0;
     }
 
@@ -1510,6 +1539,7 @@ static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors
     if (!g_spray_active && g_last_spray_stop_ms > 0) {
         long long since_stop = now_ms() - g_last_spray_stop_ms;
         if (since_stop >= 0 && since_stop < cfg->spray_cooldown_ms) {
+            copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "cooldown");
             return 0;
         }
     }
@@ -1521,14 +1551,17 @@ static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors
             g_spray_active = 0;
             g_last_spray_stop_ms = now_ms();
             log_msg("[spray] max duration %dms reached, stopping pump", cfg->spray_max_ms);
+            copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "max_duration_stop");
             return 0;
         }
+        copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "pump_on");
         return 1;
     }
 
     /* Start spray */
     g_spray_active = 1;
     g_last_spray_start_ms = now_ms();
+    copy_string(ctx->spray_decision, sizeof(ctx->spray_decision), "pump_on");
     return 1;
 }
 
@@ -1742,8 +1775,7 @@ static void build_event_json(const AppConfig *cfg, const SensorState *sensors, c
             spray_score_str,
             cfg->spray_min_ai_score,
             /* decision */
-            (strcmp(ctx->alarm_phase, "SUPPRESSING") == 0) ? "pump_on" :
-            (strcmp(ctx->alarm_phase, "AIMING") == 0) ? "hold_pump" : "idle");
+            ctx->spray_decision[0] ? ctx->spray_decision : "idle");
     fclose(fp);
 }
 
