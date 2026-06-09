@@ -1,6 +1,8 @@
 # 基于 i.MX6ULL 与 Orange Pi 5 的端边协同本地 AI 多模态安全巡检系统
 
 > 当前状态：本仓库进入平台迁移阶段。旧 STM32 + ESP32-CAM 方案作为第一版迭代历史归档，新主线为 i.MX6ULL Pro Linux + Orange Pi 5 本地 RKNN。
+>
+> **注意**：原主线为 i.MX6ULL + OPi5 双板架构。由于 i.MX6ULL 末期出现供电/启动异常，答辩前临时切换为 OPi5 一板双进程：`opi5_safetyd` 负责本地安全闭环，`opi5_ai_service` 负责 AI 推理。i.MX6ULL 目录和测试记录保留为工程迭代证据。
 
 ## 1. 项目一句话定位
 

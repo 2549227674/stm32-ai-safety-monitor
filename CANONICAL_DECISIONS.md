@@ -349,6 +349,62 @@ netsh interface portproxy delete v4tov4 listenaddress=192.168.137.1 listenport=1
 Remove-NetFirewallRule -DisplayName "OPi5-AI-Port-Forward-18080"
 ```
 
+## 0.8.1 i.MX6ULL 故障后的 OPi5 临时主控迁移
+
+### 背景
+
+i.MX6ULL Pro 末期联调时出现供电/启动异常（裸板电源灯闪、串口无 U-Boot、USB 下载不枚举），
+无万用表/可调电源，无法在答辩前更换板卡。
+
+### 决策
+
+把本地安全主控 `imx_safetyd` 迁移到 Orange Pi 5（RK3588S，Orange Pi 官方 Ubuntu）。
+OPi5 临时同时承担：
+
+1. **本地安全闭环进程** `opi5_safetyd` — GPIO/I2C 传感器采集、状态机、执行器控制
+2. **AI 推理服务** `opi5_ai_service` — Qwen3-VL / mock，`control_allowed=false`
+
+两个进程独立运行，互不依赖。AI 离线时本地安全闭环仍可依据传感器进入安全态。
+
+### 关键约束
+
+- i.MX6ULL 目录 (`edge/imx6ull-controller/`) 和测试记录 (`tests/imx6ull/`) 保留为工程迭代证据
+- 控制层临时整合到 OPi5 的独立 `opi5_safetyd` 进程
+- OPi5 AI 服务仍独立，`control_allowed=false`
+- Flask 不控制执行器
+- OPi5 pinmap 以 `opi5_controller_pinmap_and_i2c.md` 和板端测试记录为事实源
+- 所有 GPIO/I2C 号必须以板端 `gpio readall` / `i2cdetect` 实测为准
+
+### 文件结构
+
+```text
+edge/opi5-controller/
+├── src/opi5_safetyd.c        # 主控程序（从 imx_safetyd.c 迁移）
+├── src/pca9685_set_pwm.c     # PCA9685 PWM 工具
+├── src/bsp_oled_ssd1306.c    # OLED 驱动
+├── include/                  # 头文件
+├── config/opi5-safetyd.example.env
+└── systemd/opi5-safetyd.service
+```
+
+### 引脚映射（2026-06-09 实测确认）
+
+| 逻辑信号 | OPi5 物理脚 | GPIO 号 | 方向 | 备注 |
+|---|---|---|---|---|
+| I2C5 SDA | pin 3 | 47 | I2C | OLED 0x3C + MPU6050 0x68，已验证 |
+| I2C5 SCL | pin 5 | 46 | I2C | OLED 0x3C + MPU6050 0x68，已验证 |
+| Pan 舵机 | pin 7 | 54 (PWM15) | PWM | pwmchip4, 80-90 度，已验证 |
+| 水枪 MOS | pin 11 | 138 | output | active HIGH，已验证 |
+| PIR | pin 13 | 139 | input | active HIGH，已验证 |
+| 火焰 flame | pin 15 | 28 | input | active LOW，已验证 |
+| MQ-2 | pin 19 | 49 | input | active LOW，3.3V+调灵敏度，已验证 |
+| RGB R | pin 21 | 48 | output | active HIGH，已验证 |
+| RGB G | pin 23 | 50 | output | active HIGH，已验证 |
+| RGB B | pin 24 | 52 | output | active HIGH，已验证 |
+| 蜂鸣器 buzzer | pin 26 | 35 | output | active LOW，已验证 |
+
+PCA9685 不可用（4 个模块均未 ACK），所有执行器改用 GPIO/PWM 直控。
+
 ## 0.9 不可违反的硬约束
 
 1. 本地安全闭环优先；无网络、无摄像头、无 AI 时，i.MX6ULL 仍要能依据本地传感器进入安全状态。

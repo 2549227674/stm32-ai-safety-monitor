@@ -13,7 +13,26 @@ edge/imx6ull-controller/        edge/opi5-ai/               server/backend/
   event_client
 ```
 
-核心原则：i.MX6ULL 本地状态机是唯一执行器决策点；OPi5 与 Flask 是服务端，不直接控制硬件。
+核心原则：本地安全主控进程是唯一执行器决策点；AI 服务与 Flask 不直接控制硬件。
+
+### OPi5 临时主控架构（i.MX6ULL 故障后）
+
+由于 i.MX6ULL 末期供电/启动异常，控制层临时整合到 OPi5。OPi5 同时运行两个独立进程：
+
+```text
+edge/opi5-controller/           edge/opi5-ai/               server/backend/
+  opi5_safetyd                     opi5_ai_service             Flask app.py
+  gpio_input (libgpiod/sysfs)      /health                     SQLite database.py
+  pca9685_output                   /api/infer/vision           Dashboard JS/HTML
+  safety_fsm                       RKNN/Qwen3-VL               /api/events
+  event_client                     control_allowed=false       /api/images
+  spool
+  oled_ssd1306
+```
+
+- `opi5_safetyd`：本地安全闭环，GPIO 传感器 → 状态机 → 执行器，断网/断 AI 仍可运行
+- `opi5_ai_service`：AI 推理，只返回 `risk_hint`，`control_allowed=false`
+- 两个进程独立，互不依赖；AI 离线时安全闭环仍依据本地传感器进入安全态
 
 ## 4.2 仓库目录结构
 
