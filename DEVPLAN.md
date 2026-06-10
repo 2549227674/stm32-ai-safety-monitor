@@ -16,21 +16,18 @@ OPi5 一板主控完成本地安全闭环 + AI 推理 + 设备管理 + Flask/Rea
 | Task12 网络优化 | 已完成 | 全无线 + 自启动 |
 | Task13 OPi5 controller migration | 已完成 | GPIO/PWM/MOS 验证 |
 | 文档对齐与归档 | 已完成 | i.MX/STM32/ESP32 归档，OPi5 主线口径统一 |
-
-### 当前进行中
-
-| 任务 | 目标 | 状态 |
-|---|---|---|
-| 前后端/device-agent 字段对齐 | API 字段一致 | 待执行 |
-| 前端真实数据联调 | mock/real mode 正常 | 待执行 |
+| 前后端/device-agent 字段对齐 | 已完成 | heartbeat/telemetry/通知字段三方一致（`126e2ce` + `7289b1d`） |
+| 前端真实数据联调 | 已完成 | mock/real mode 正常，camera_status/video_mode 对齐 |
+| mock/seed 数据链路验证 | 已完成 | 无设备时可演示 telemetry/AI/通知 |
 
 ### 下一步
 
 | 任务 | 目标 |
 |---|---|
-| mock/seed 数据链路验证 | 无设备时可演示 |
-| 真实设备回归 | 摄像头可用时验证 |
-| 报告/PPT/硬件图纸收口 | 答辩材料 |
+| OPi5 真实设备回归 | 有真实硬件时端到端验证 |
+| USB camera real stream/snapshot | 真实摄像头 → device-agent → Flask → 前端 |
+| SMTP 真实邮件测试 | 配置真实 SMTP 服务器后发送测试邮件 |
+| 报告/PPT/硬件图纸收口 | 答辩材料最终提交 |
 
 ## 3. MVP 锁定范围
 

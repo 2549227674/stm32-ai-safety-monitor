@@ -112,6 +112,14 @@ GET /uploads/<filename>
 | telemetry batch | 30s |
 | AI observation | 30s |
 
+### 当前已确认的契约细节
+
+- heartbeat 已包含 `agent_url`、`agent_port`、`camera`（对象）、`camera_status`、`video_mode`、`video_available`
+- telemetry canonical sample 使用 `device.*` 嵌套结构（cpu_temp_c、mem_used_mb 等不在顶层）
+- `/api/telemetry/series` 支持 metric alias（cpu_temp_c → device.cpu_temp_c 等 8 个）
+- notification_log 包含 `dedupe_key` 字段，cooldown 基于 dedupe_key + timestamp + status='sent'
+- Flask 视频代理地址解析：OPI5_DEVICE_AGENT_URL → agent_url → ip+agent_port；unknown 时返回 503
+
 ## 5. 当前目录树
 
 ```text
