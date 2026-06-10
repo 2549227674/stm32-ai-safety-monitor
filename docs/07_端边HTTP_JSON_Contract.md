@@ -49,8 +49,10 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/video/stream` | 视频流代理 |
-| GET | `/api/video/snapshot.jpg` | 快照代理 |
+| GET | `/api/video/stream` | 视频流代理（当前依赖 `OPI5_DEVICE_AGENT_URL` 环境变量） |
+| GET | `/api/video/snapshot.jpg` | 快照代理（同上） |
+
+> 当前 Flask 视频代理通过 `OPI5_DEVICE_AGENT_URL` 环境变量定位 device-agent。下一轮代码修复将支持从 heartbeat 的 `agent_url` 字段自动发现。
 
 ### SSE
 
@@ -189,19 +191,44 @@ Content-Type：`multipart/form-data`
 
 接口：`POST http://<BACKEND_HOST>:5000/api/devices/heartbeat`
 
+当前已实现字段：
+
 ```json
 {
-  "device_id": "labbox_001",
+  "device_id": "edge-opi5-001",
   "timestamp": "2026-06-10T12:00:00Z",
+  "agent_version": "0.2.0",
+  "ip": "192.168.1.100",
+  "uptime_s": 3600.5,
+  "online": true,
   "services": {
-    "safetyd": "running",
-    "ai_service": "running",
-    "device_agent": "running"
+    "device_agent": "running",
+    "opi5-ai-qwen3vl": "active",
+    "opi5-safetyd": "active"
   },
-  "video_available": true,
-  "video_url": "http://127.0.0.1:5000/api/video/stream?device_id=labbox_001"
+  "health": {
+    "cpu_temp_c": 47.3,
+    "mem_used_mb": 1024,
+    "mem_total_mb": 16384,
+    "cpu_load_1m": 0.5,
+    "disk_used_pct": 35.2
+  },
+  "ai": {
+    "ok": true,
+    "model_ready": true,
+    "mode": "qwen3vl"
+  }
 }
 ```
+
+待下一轮代码修复字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `agent_url` | string | device-agent 可达 URL，用于 Flask 视频代理自动发现 |
+| `camera` | object | 摄像头状态（online/offline/mock） |
+| `video_mode` | string | 当前视频模式（real/mock） |
+| `video_available` | bool | 视频是否可用 |
 
 ## 7.7 device-agent 遥测批量上报
 
@@ -209,16 +236,35 @@ Content-Type：`multipart/form-data`
 
 ```json
 {
-  "device_id": "labbox_001",
-  "series": [
+  "device_id": "edge-opi5-001",
+  "window": {
+    "start": "2026-06-10T12:00:00Z",
+    "end": "2026-06-10T12:00:30Z",
+    "sample_count": 30,
+    "sample_interval_ms": 1000
+  },
+  "samples": [
     {
-      "timestamp": "2026-06-10T12:00:00Z",
-      "sensors": {"pir": 0, "flame": 0, "mq2": 0},
-      "state": "NORMAL",
-      "risk_score": 0,
-      "soc_temp": 47.3
+      "ts": "2026-06-10T12:00:00Z",
+      "risk_score": 0.0,
+      "sensors": {
+        "mpu6500": {"accel_x": 0.1, "accel_y": -0.2, "accel_z": 9.8, "gyro_x": 0.01, "gyro_y": -0.02, "gyro_z": 0.0, "vibration_score": 0.05},
+        "env": {"temp_c": 25.3, "humidity_pct": 60.0, "light_lux": 300},
+        "safety": {"pir": 0, "flame": 0, "mq2": 0}
+      },
+      "sensor_scores": {"mpu6500_vibration": 0.05, "cpu_temp": 0.0, "smoke": 0.0, "flame": 0.0},
+      "cpu_temp_c": 47.3,
+      "mem_used_mb": 1024,
+      "mem_total_mb": 16384,
+      "cpu_load_1m": 0.5,
+      "disk_used_pct": 35.2
     }
-  ]
+  ],
+  "summary": {
+    "risk_score": {"min": 0.0, "avg": 0.0, "max": 0.0, "latest": 0.0},
+    "cpu_temp_c": {"min": 46.5, "avg": 47.1, "max": 48.2, "latest": 47.3},
+    "mpu6500_vibration": {"min": 0.02, "avg": 0.04, "max": 0.08, "latest": 0.05}
+  }
 }
 ```
 
@@ -228,14 +274,25 @@ Content-Type：`multipart/form-data`
 
 ```json
 {
-  "device_id": "labbox_001",
+  "device_id": "edge-opi5-001",
   "timestamp": "2026-06-10T12:00:00Z",
+  "window_sec": 30,
+  "model": {
+    "name": "qwen3-vl-2b",
+    "backend": "rknn-llm",
+    "mode": "worker",
+    "model_ready": true
+  },
+  "run_metrics": {},
+  "risk_hint": 0,
   "summary": "当前环境正常，未检测到异常。",
   "full_text": "画面中未发现人员或异常物体...",
-  "risk_hint": 0,
-  "objects": [],
-  "run_metrics": {"latency_ms": 86},
-  "model": "qwen3-vl-2b"
+  "labels": [],
+  "input": {
+    "telemetry_summary": {}
+  },
+  "ok": true,
+  "error": null
 }
 ```
 
