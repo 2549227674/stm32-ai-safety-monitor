@@ -61,13 +61,14 @@ def heartbeat_loop():
 
             cam = video.get_status()
             agent_ip = _get_ip()
+            agent_url = f"http://{agent_ip}:{AGENT_PORT}" if agent_ip not in ("unknown", "") else None
 
             payload = {
                 "device_id": DEVICE_ID,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "agent_version": "0.2.0",
                 "ip": agent_ip,
-                "agent_url": f"http://{agent_ip}:{AGENT_PORT}",
+                "agent_url": agent_url,
                 "agent_port": AGENT_PORT,
                 "uptime_s": _get_uptime(),
                 "online": True,

@@ -73,10 +73,19 @@ class VideoCapture:
             return self._minimal_jpeg()
 
     def _minimal_jpeg(self):
-        import struct
-        now = datetime.now().strftime("%H:%M:%S")
-        data = f"MOCK {now}".encode()
-        return data
+        """Return a minimal valid JPEG (grey 2x2 image)."""
+        # Minimal JFIF JPEG: SOI + APP0 + DQT + SOF0 + DHT + SOS + image data + EOI
+        return (
+            b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00'
+            b'\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t'
+            b'\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a'
+            b'\x1f\x1e\x1d\x1a\x1c\x1c $.\' ",#\x1c\x1c(7),01444\x1f\'9=82<.342'
+            b'\xff\xc0\x00\x0b\x08\x00\x02\x00\x02\x01\x01\x11\x00'
+            b'\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00'
+            b'\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b'
+            b'\xff\xda\x00\x08\x01\x01\x00\x00?\x00T\xdb\x9e\xa7\x95'
+            b'\xff\xd9'
+        )
 
     def get_frame(self):
         if self.mock:

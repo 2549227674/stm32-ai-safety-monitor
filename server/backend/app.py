@@ -196,7 +196,7 @@ def create_app():
             payload,
             samples,
         )
-        _check_telemetry_alerts(device_id, summary)
+        _check_telemetry_alerts(device_id, summary, notifier)
         return jsonify({"ok": True, "device_id": device_id, "sample_count": len(samples)})
 
     @app.get("/api/telemetry/series")
@@ -222,7 +222,7 @@ def create_app():
         if not device_id:
             return jsonify({"ok": False, "error": "device_id required"}), 400
         obs_id = insert_ai_observation(payload)
-        _check_ai_alert(device_id, payload, obs_id)
+        _check_ai_alert(device_id, payload, obs_id, notifier)
         return jsonify({"ok": True, "id": obs_id, "device_id": device_id}), 201
 
     @app.get("/api/ai/observations/latest")
@@ -369,15 +369,14 @@ def _get_device_agent_url(device_id):
     status = d.get("status", {})
     # status IS the heartbeat payload (raw heartbeat JSON stored directly)
     hb = status.get("heartbeat", status) or {}
-    # 1. direct agent_url in heartbeat
-    if hb.get("agent_url"):
-        return hb["agent_url"].rstrip("/")
-    # 2. top-level status fields (heartbeat is the raw payload)
-    if status.get("agent_url"):
-        return status["agent_url"].rstrip("/")
-    # 3. infer from ip + agent_port
+    # 1. direct agent_url in heartbeat (skip "unknown", empty, or URLs with unknown host)
+    for src in (hb, status):
+        au = src.get("agent_url")
+        if au and au not in ("unknown", "") and "unknown" not in au:
+            return au.rstrip("/")
+    # 2. infer from ip + agent_port (skip "unknown"/null/empty ip)
     ip = hb.get("ip") or status.get("ip")
-    if ip and ip != "unknown":
+    if ip and ip not in ("unknown", "", "null"):
         port = hb.get("agent_port") or status.get("agent_port") or 8090
         return f"http://{ip}:{port}"
     return None
@@ -424,7 +423,7 @@ def _get_threshold_for_metric(device_id, metric):
     return defaults.get(canonical)
 
 
-def _check_telemetry_alerts(device_id, summary):
+def _check_telemetry_alerts(device_id, summary, notifier):
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     thresholds = get_thresholds(device_id) or _default_thresholds()
@@ -436,7 +435,7 @@ def _check_telemetry_alerts(device_id, summary):
         notifier.notify_alert(alert)
 
 
-def _check_ai_alert(device_id, obs, obs_id):
+def _check_ai_alert(device_id, obs, obs_id, notifier):
     from datetime import datetime, timezone
     risk_hint = obs.get("risk_hint")
     if risk_hint is not None and risk_hint >= 7:

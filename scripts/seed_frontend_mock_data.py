@@ -40,18 +40,18 @@ def seed():
             "error": None,
         },
         "camera": {
-            "status": "mock",
-            "mode": "mock",
-            "available": True,
+            "status": "offline",
+            "mode": "offline",
+            "available": False,
             "device": None,
             "width": 1280,
             "height": 720,
             "fps": 12,
             "mock": True,
         },
-        "camera_status": "mock",
-        "video_mode": "mock",
-        "video_available": True,
+        "camera_status": "offline",
+        "video_mode": "offline",
+        "video_available": False,
     }
     r = requests.post(f"{BASE}/api/devices/heartbeat", json=hb)
     print(f"  heartbeat: {r.status_code}")
@@ -158,6 +158,8 @@ def seed():
     print(f"  ai observation: {r.status_code}")
 
     print("Done! Open http://localhost:5000/ to see the console.")
+    print("Note: video stream requires a running opi5-device-agent (mock or real).")
+    print("  Start mock: VIDEO_MOCK=1 python3 edge/opi5-device-agent/app.py")
 
 if __name__ == "__main__":
     seed()
