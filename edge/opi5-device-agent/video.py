@@ -35,6 +35,7 @@ class VideoCapture:
                 self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
                 self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
                 self._cap.set(cv2.CAP_PROP_FPS, self.fps)
+                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 self._available = True
                 self._real_opened = True
                 threading.Thread(target=self._capture_loop, daemon=True).start()
