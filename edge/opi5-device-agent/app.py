@@ -156,6 +156,7 @@ def video_stream():
                 continue
             yield (b"--frame\r\n"
                    b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
+            time.sleep(1.0 / video.fps)
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
