@@ -12,7 +12,9 @@ from database import (
     upsert_device_status, get_device_status, insert_telemetry_batch,
     get_telemetry_series, insert_ai_observation, get_latest_ai_observation,
     get_thresholds, upsert_threshold, insert_alert, list_alerts,
+    get_connection,
 )
+from email_notifier import EmailNotifier
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -47,6 +49,8 @@ def create_app():
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
+
+    notifier = EmailNotifier(get_connection)
 
     @app.errorhandler(RequestEntityTooLarge)
     def handle_large_file(_error):
@@ -217,6 +221,7 @@ def create_app():
         if not device_id:
             return jsonify({"ok": False, "error": "device_id required"}), 400
         obs_id = insert_ai_observation(payload)
+        _check_ai_alert(device_id, payload, obs_id)
         return jsonify({"ok": True, "id": obs_id, "device_id": device_id}), 201
 
     @app.get("/api/ai/observations/latest")
@@ -305,6 +310,31 @@ def create_app():
                 time.sleep(1)
         return app.response_class(generate(), mimetype="text/event-stream")
 
+    # --- Notification ---
+
+    @app.get("/api/notification/settings")
+    def get_notification_settings():
+        return jsonify({"ok": True, "settings": notifier.get_settings()})
+
+    @app.put("/api/notification/settings")
+    def update_notification_settings():
+        payload = request.get_json(silent=True)
+        if not payload or not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "JSON body required"}), 400
+        notifier.update_settings(payload)
+        return jsonify({"ok": True, "settings": notifier.get_settings()})
+
+    @app.post("/api/notification/test-email")
+    def send_test_email():
+        result = notifier.send_test_email()
+        return jsonify(result)
+
+    @app.get("/api/notification/logs")
+    def get_notification_logs():
+        limit = int(request.args.get("limit", 50))
+        logs = notifier.get_logs(limit)
+        return jsonify({"ok": True, "logs": logs})
+
     return app
 
 
@@ -356,7 +386,27 @@ def _check_telemetry_alerts(device_id, summary):
     thresholds = get_thresholds(device_id) or _default_thresholds()
     risk = summary.get("risk_score", {})
     if risk.get("latest", 0) >= thresholds.get("risk_score", {}).get("danger", 7):
-        insert_alert({"device_id": device_id, "timestamp": now, "level": "danger", "metric": "risk_score", "message": f"Risk score {risk['latest']} exceeds danger threshold"})
+        alert = {"device_id": device_id, "timestamp": now, "level": "danger", "metric": "risk_score", "message": f"Risk score {risk['latest']} exceeds danger threshold"}
+        alert_id = insert_alert(alert)
+        alert["id"] = alert_id
+        notifier.notify_alert(alert)
+
+
+def _check_ai_alert(device_id, obs, obs_id):
+    from datetime import datetime, timezone
+    risk_hint = obs.get("risk_hint")
+    if risk_hint is not None and risk_hint >= 7:
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        alert = {
+            "device_id": device_id,
+            "timestamp": now,
+            "level": "danger",
+            "metric": "ai_risk_hint",
+            "message": f"AI risk hint {risk_hint} exceeds threshold",
+        }
+        alert_id = insert_alert(alert)
+        alert["id"] = alert_id
+        notifier.notify_alert(alert)
 
 
 def _build_tick(device_id):
