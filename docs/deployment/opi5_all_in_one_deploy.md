@@ -116,6 +116,13 @@ ALERT_EMAIL_TO=接收告警的邮箱
 
 3. 重启后端：`sudo systemctl restart edge-ai-backend`
 
+### notification_config.json
+
+- 如果 `server/backend/notification_config.json` 已存在于 OPi5 项目目录，后端会优先读取它。
+- 该文件被 `.gitignore` 忽略，不会随 `git push/pull` 分发。
+- fresh clone 到 OPi5 后，需要重新在前端通知设置页保存，或手动复制 `notification_config.json`，或在 `/etc/edge-ai-safety-monitor.env` 配置 SMTP。
+- 不要提交 QQ 邮箱授权码到仓库。
+
 ## 部署说明
 
 PC Flask 作为主部署方式已不再推荐。当前主方案为 OPi5 all-in-one。

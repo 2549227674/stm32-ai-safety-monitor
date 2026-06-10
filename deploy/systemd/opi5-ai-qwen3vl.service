@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=orangepi
-WorkingDirectory=/opt/edge-ai-safety-monitor/opi5-ai
+WorkingDirectory=/opt/edge-ai-safety-monitor/edge/opi5-ai/service
 EnvironmentFile=-/etc/edge-ai-safety-monitor.env
 ExecStart=/usr/bin/python3 app.py
 Restart=always

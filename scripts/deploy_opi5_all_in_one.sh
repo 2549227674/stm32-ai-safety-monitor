@@ -38,8 +38,9 @@ fi
 # 4. Prepare deploy symlinks
 echo ""
 echo "--- Prepare deploy layout ---"
-mkdir -p "$DEPLOY_BASE"
-for d in server/backend opi5-device-agent opi5-ai opi5-controller; do
+mkdir -p "$DEPLOY_BASE"/{server,edge,build/opi5-controller,run}
+
+for d in server/backend server/frontend edge/opi5-device-agent edge/opi5-ai edge/opi5-controller; do
     src="$PROJECT_ROOT/$d"
     dst="$DEPLOY_BASE/$d"
     if [[ -d "$src" ]]; then
@@ -49,10 +50,11 @@ for d in server/backend opi5-device-agent opi5-ai opi5-controller; do
         fi
     fi
 done
-# Also symlink the built safetyd binary if present
-if [[ -f "$PROJECT_ROOT/build/opi5_safetyd" ]]; then
-    ln -sf "$PROJECT_ROOT/build/opi5_safetyd" "$DEPLOY_BASE/opi5_safetyd"
-    echo "  symlink: $DEPLOY_BASE/opi5_safetyd"
+# Symlink built safetyd binary
+if [[ -f "$PROJECT_ROOT/build/opi5-controller/opi5_safetyd" ]]; then
+    ln -sf "$PROJECT_ROOT/build/opi5-controller/opi5_safetyd" \
+           "$DEPLOY_BASE/build/opi5-controller/opi5_safetyd"
+    echo "  symlink: $DEPLOY_BASE/build/opi5-controller/opi5_safetyd"
 fi
 
 # 5. Generate env file if not exists
@@ -65,7 +67,18 @@ else
     echo "CREATED: $ENV_FILE (edit SMTP_PASSWORD before enabling email alerts)"
 fi
 
-# 6. Install systemd services
+# 6. SMTP notification config hint
+echo ""
+echo "--- SMTP notification config ---"
+NOTIF_CFG="$PROJECT_ROOT/server/backend/notification_config.json"
+if [[ -f "$NOTIF_CFG" ]]; then
+    echo "SMTP config found: server/backend/notification_config.json"
+    chmod 600 "$NOTIF_CFG" 2>/dev/null || true
+else
+    echo "SMTP config not found; configure in frontend notification settings or /etc/edge-ai-safety-monitor.env"
+fi
+
+# 7. Install systemd services
 echo ""
 echo "--- systemd services ---"
 for svc in edge-ai-backend opi5-device-agent opi5-safetyd opi5-ai-qwen3vl; do
@@ -80,14 +93,14 @@ done
 systemctl daemon-reload
 echo "OK: daemon-reload"
 
-# 7. Enable services
+# 8. Enable services
 echo ""
 echo "--- Enable services ---"
 for svc in edge-ai-backend opi5-device-agent opi5-safetyd opi5-ai-qwen3vl; do
     systemctl enable "$svc" 2>/dev/null && echo "  enabled: $svc" || echo "  (skip enable: $svc)"
 done
 
-# 8. Print summary
+# 9. Print summary
 OPI5_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "<OPI5_IP>")
 echo ""
 echo "========================================="

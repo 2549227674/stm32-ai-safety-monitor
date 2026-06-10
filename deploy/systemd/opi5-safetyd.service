@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-/etc/edge-ai-safety-monitor.env
-ExecStart=/opt/edge-ai-safety-monitor/opi5_safetyd --mode loop
+ExecStart=/opt/edge-ai-safety-monitor/build/opi5-controller/opi5_safetyd --mode loop
 Restart=always
 RestartSec=3
 WorkingDirectory=/opt/edge-ai-safety-monitor
