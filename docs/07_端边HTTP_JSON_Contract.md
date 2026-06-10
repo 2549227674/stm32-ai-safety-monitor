@@ -1,5 +1,8 @@
 # 07 端边 HTTP JSON Contract
 
+> 最后更新：2026-06-10
+> 当前主线：OPi5 一板主控 + Flask 后端
+
 ## 7.1 Contract 目标
 
 本文件是端边数据契约的唯一权威来源。所有代码、测试和 Dashboard 字段必须与本文件保持一致。
@@ -7,23 +10,79 @@
 目标：
 
 1. 保留旧事件 JSON 的核心语义：`risk_score`、`sensors`、`actuators`、`state`。
-2. 将原 STM32↔ESP32-CAM UART JSON 演化为 i.MX6ULL↔OPi5↔Flask 的 HTTP/JSON Contract。
+2. 定义 OPi5 safetyd → Flask、OPi5 device-agent → Flask、OPi5 AI → safetyd 的完整契约。
 3. AI 只返回 `risk_hint` 和解释，绝不直接控制执行器。
 4. 所有接口都能用 curl 单独测试。
 
-## 7.2 i.MX6ULL → OPi5 推理请求
+## 7.2 当前 API 总览
+
+### Device Management
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/devices/heartbeat` | 设备心跳（5s） |
+| GET | `/api/devices` | 设备列表 |
+| GET | `/api/devices/<device_id>` | 设备详情 |
+
+### Telemetry
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/telemetry/batch` | 遥测批量上报（30s） |
+| GET | `/api/telemetry/series` | 遥测时序查询 |
+
+### AI Observations
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/ai/observations` | AI observation 上报（30s） |
+| GET | `/api/ai/observations/latest` | 最新 AI observation |
+
+### Thresholds & Alerts
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET/PUT | `/api/thresholds` | 阈值配置 |
+| GET | `/api/alerts` | 告警列表 |
+
+### Video
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/video/stream` | 视频流代理 |
+| GET | `/api/video/snapshot.jpg` | 快照代理 |
+
+### SSE
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/stream/events` | SSE 事件流 |
+
+### Notification
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/notification/settings` | 通知配置 |
+| PUT | `/api/notification/settings` | 更新通知配置 |
+| POST | `/api/notification/test-email` | 测试邮件 |
+| GET | `/api/notification/logs` | 通知日志 |
+
+### Legacy（保持兼容）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST/GET | `/api/events` | 旧事件接口 |
+| GET | `/api/status/latest` | 最新状态 |
+| POST | `/api/images` | 图片上传 |
+| GET | `/uploads/<filename>` | 图片访问 |
+
+## 7.3 OPi5 AI 推理请求
 
 接口：`POST http://<OPI5_AI_URL>/api/infer/vision`
 
-AI URL 按网络方案选择：
+AI 服务运行在 OPi5 本地（端口 8080），由 `opi5_safetyd` 或 `opi5-device-agent` 调用。
 
-| 优先级 | 方案 | AI URL | Flask URL |
-|---|---|---|---|
-| 1（当前） | 全无线热点 | `http://<OPI5_WIFI_IP>:8080/api/infer/vision` | `http://<PC_WIFI_IP>:5000/api/events` |
-| 2 | Windows portproxy 回退 | `http://192.168.137.1:18080/api/infer/vision` | `http://192.168.137.1:5000/api/events` |
-| 3 | 全有线回退 | `http://10.0.1.120:8080/api/infer/vision` | `http://<PC_WIRED_IP>:5000/api/events` |
-
-无论网络路径如何变化，JSON contract 不变。AI 仍只返回 `risk_hint` / `summary` / `explanation` / `labels` / `objects`，`control_allowed=false`，不直接控制执行器。OPi5 / Flask / Dashboard 不直接控制执行器。
+无论网络路径如何变化，JSON contract 不变。AI 仍只返回 `risk_hint` / `summary` / `explanation` / `labels` / `objects`，`control_allowed=false`，不直接控制执行器。
 
 Content-Type：`multipart/form-data`
 
@@ -40,7 +99,7 @@ Content-Type：`multipart/form-data`
   "device_id": "labbox_001",
   "frame_id": 42,
   "timestamp": "<TODO:FILL_BY_RUNTIME>",
-  "source": "imx6ull_v4l2",
+  "source": "opi5_v4l2",
   "image_format": "jpeg",
   "resolution": {"width": 640, "height": 480},
   "sensors": {"door": 0, "pir": 1, "flame": 0, "mq2": 0},
@@ -50,7 +109,7 @@ Content-Type：`multipart/form-data`
 }
 ```
 
-## 7.3 OPi5 → i.MX6ULL 推理响应
+## 7.4 OPi5 AI 推理响应
 
 ```json
 {
@@ -82,7 +141,7 @@ Content-Type：`multipart/form-data`
 | `latency_ms` | int | OPi5 服务内部耗时，真实值由服务填充 |
 | `objects` | list | 每个对象包含 `label/score/bbox` |
 | `faces` | list | 可为空；身份只用于展示和风险提示 |
-| `risk_hint` | int 0–10 | AI 风险提示，i.MX6ULL 可参考但不盲从 |
+| `risk_hint` | int 0–10 | AI 风险提示，safetyd 可参考但不盲从 |
 | `summary` | string | Dashboard 展示 |
 | `action_hint` | string | 只作提示，不作为执行器命令 |
 | `control_allowed` | bool | 必须为 `false` |
@@ -104,9 +163,9 @@ Content-Type：`multipart/form-data`
 
 注意：VLM 类模型的 `objects` 可为空数组，因为 VLM 不提供像素级 bbox。不得伪造 bbox。
 
-## 7.4 i.MX6ULL → Flask 事件上报
+## 7.5 OPi5 safetyd → Flask 事件上报
 
-接口：`POST http://<BACKEND_HOST_TODO_FILL>:5000/api/events`
+接口：`POST http://<BACKEND_HOST>:5000/api/events`
 
 兼容旧字段，新增视觉字段。示例：
 
@@ -137,7 +196,7 @@ Content-Type：`multipart/form-data`
 }
 ```
 
-## 7.5 图片上传
+## 7.6 图片上传
 
 现有 Flask 已支持 `POST /api/images`，字段：
 
@@ -155,7 +214,7 @@ MVP 可选两种顺序：
 
 推荐 MVP 使用第 1 种，Dashboard 实现更直观。
 
-## 7.6 错误码
+## 7.7 错误码
 
 | 场景 | HTTP | JSON |
 |---|---|---|
@@ -165,13 +224,13 @@ MVP 可选两种顺序：
 | AI 模型未加载 | 503 | `{"ok": false, "error": "model not ready"}` |
 | 推理超时 | 504 | `{"ok": false, "error": "inference timeout"}` |
 
-## 7.7 超时与重试
+## 7.8 超时与重试
 
-| 链路 | MVP 超时 | 重试 | 降级 |
+| 链路 | 超时 | 重试 | 降级 |
 |---|---|---|---|
-| i.MX→OPi5 AI | `<TODO:MEASURE>` ms，初始建议 1500ms | 0–1 次 | 使用本地传感器结果 |
-| i.MX→Flask event | `<TODO:MEASURE>` ms，初始建议 1000ms | 本地 spool 后补发 | 本地继续控制 |
-| i.MX 图片上传 | `<TODO:MEASURE>` ms | 可跳过图片 | 事件仍上报 |
+| safetyd→AI | ~5-13s（Qwen3-VL） | 0–1 次 | 使用本地传感器结果 |
+| safetyd→Flask event | ~1000ms | 本地 spool 后补发 | 本地继续控制 |
+| 图片上传 | ~1000ms | 可跳过图片 | 事件仍上报 |
 
 > **[CLAUDE_CODE_TODO | MEASURE]** 标定 HTTP 超时与端到端延迟
 > - 为何 GPT 给不了：真实网络、图片大小、OPi5 推理速度只能实测。
@@ -180,7 +239,7 @@ MVP 可选两种顺序：
 > - 验收：至少 20 次请求统计，并给出最终超时参数。
 
 
-## 7.8 字段命名规范
+## 7.9 字段命名规范
 
 - snake_case。
 - bool 使用 true/false。
@@ -189,24 +248,24 @@ MVP 可选两种顺序：
 - 时间戳使用 ISO 8601 字符串。
 - 所有新增字段必须能被旧后端忽略或存入 `raw_json`。
 
-## 7.9 版本号与兼容策略
+## 7.10 版本号与兼容策略
 
 `contract_version` 初始为 `1.0`。字段只能向后兼容新增，不允许删除旧字段。Flask 扩展时优先保留 `raw_json`，避免 DB schema 变更导致旧事件不可读。
 
-## 7.10 P0 传感器/执行器字段使用说明
+## 7.11 当前传感器/执行器字段
 
-P0 阶段使用既有字段，不新增、不改库：
+OPi5 GPIO 直控（PCA9685 不可用）：
 
-| 字段路径 | P0 用途 |
-|---|---|
-| `sensors.door` | 门磁 gpio118，0/1 |
-| `sensors.pir` | PIR gpio117，0/1 |
-| `sensors.flame` | 火焰 gpio119，0/1 |
-| `sensors.mq2` | MQ-2 gpio120，0/1 |
-| `actuators.buzzer` | 蜂鸣器 gpio122，0/1 |
-| `actuators.rgb_r` | 红色 LED gpio121，0/1 |
-| `actuators.rgb_g` | 绿色 LED gpio123，0/1 |
-| `actuators.rgb_b` | 蓝色 LED gpio124，0/1 |
+| 字段路径 | 用途 | OPi5 GPIO |
+|---|---|---|
+| `sensors.pir` | PIR motion | pin13 / gpio139 |
+| `sensors.flame` | 火焰检测 | pin15 / gpio28 |
+| `sensors.mq2` | 烟雾/气体 | pin19 / gpio49 |
+| `actuators.buzzer` | 蜂鸣器 | pin26 / gpio35 |
+| `actuators.rgb_r` | 红色 LED | pin21 / gpio48 |
+| `actuators.rgb_g` | 绿色 LED | pin23 / gpio50 |
+| `actuators.rgb_b` | 蓝色 LED | pin24 / gpio52 |
+| `actuators.pump` | 水泵/水枪 | pin11 / gpio138 |
 
 以下字段保留给 P1/P2，P0 不使用、不新增：
 - `keys`：调试按键（P1）
@@ -228,7 +287,7 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 
 | 字段 | 类型 | 单位 | 说明 |
 |---|---|---|---|
-| `soc_temp` | float or null | 摄氏度 | i.MX6ULL SoC 内部温度（Task11-C 已接入），不是环境温度；读取失败时为 null |
+| `soc_temp` | float or null | 摄氏度 | 主控 SoC 内部温度，不是环境温度；读取失败时为 null |
 
 - 不加 `humidity`（本轮不做温湿度外设）。
 - 不加环境 `temp`。
@@ -271,7 +330,7 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 
 ### POST /api/track/frame
 
-低延迟追踪端点，i.MX `imx_tracker` 调用，返回目标 bbox 和视觉偏移提示。
+低延迟追踪端点，safetyd 调用，返回目标 bbox 和视觉偏移提示。
 
 请求：`multipart/form-data`
 
@@ -316,7 +375,7 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 - `tracking_hint` 是**感知提示**，不是动作命令
 - 不得包含 `pan_delta_deg` / `tilt_delta_deg` / `pump` / `relay` 等控制字段
 - `control_allowed` 必须为 `false`
-- 角度增量由 i.MX `imx_tracker` 本地计算并限幅
+- 角度增量由 safetyd 本地计算并限幅
 
 ### GET /api/track/stream
 
@@ -327,7 +386,7 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 - 标注：bbox 叠框 + label + score
 - **仅用于展示，不作为执行器控制源**
 
-## 7.11 i.MX 双确认喷水事件字段（Task12 新增）
+## 7.14 双确认喷水事件字段
 
 事件 `raw_json` 可包含 `alarm_phase` 和 `spray_confirm` 字段：
 
@@ -367,9 +426,9 @@ P1 只做向后兼容扩展，不改 DB schema。所有新字段通过 `raw_json
 | 0 | 0 | OFF | IDLE |
 
 安全约束：
-- `pump` 仍只由 i.MX 本地 `imx_safetyd` 控制
+- `pump` 仍只由 OPi5 本地 `opi5_safetyd` 控制
 - AI/OPi5/Flask 不直接控制 pump
 - `SPRAY_MAX_MS` 限时强制停泵
 - `SPRAY_COOLDOWN_MS` 冷却期不再触发
 
-Task11-C 已验证通过，证据见 `tests/imx6ull/2026-06-07_p1_soc_temp_health.md`。
+历史验证证据见 `tests/imx6ull/2026-06-07_p1_soc_temp_health.md`。

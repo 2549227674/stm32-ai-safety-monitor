@@ -1,159 +1,62 @@
-# CLAUDE.md — Claude Code 工作入口（端边协同迁移版）
+# CLAUDE.md — Claude Code 工作入口（OPi5 主线版）
 
-> 本文件与 `AGENTS.md` 保持同步，供 Claude Code 恢复后使用。Codex 自动入口仍为
-> `AGENTS.md`。二者规则一致；冲突时一律以 `CANONICAL_DECISIONS.md` 为准。
+> 本文件与 `AGENTS.md` 保持同步，供 Claude Code 恢复后使用。二者规则一致；冲突时以 `CANONICAL_DECISIONS.md` 为准。
 
 ## 0. 开始任何任务前必须先读（按顺序）
 
-1. `CANONICAL_DECISIONS.md` — 全局唯一事实源（项目名 / 四层架构 / 目录树 / 文件名映射 / 标记规范）。
-2. `CLAUDE_CODE_EXECUTION_GUIDE.md` — 执行总入口（文档地图 / 三机协作模型 / TODO 检索 / 回报模板）。
-3. 当前要执行的 `CLAUDE_CODE_TASK_xx_*.md`。
-4. 与任务相关的 `docs/0x_*.md`。
-5. 契约权威来源：`docs/07_端边HTTP_JSON_Contract.md`（其他文件只引用，不另造字段）。
-
-> 说明：仓库内执行文档沿用 `CLAUDE_*` 前缀（历史命名），其规则对 Codex 与 Claude Code 同样适用。
+1. `CANONICAL_DECISIONS.md` — 全局唯一事实源
+2. `CLAUDE_CODE_EXECUTION_GUIDE.md` — 执行总入口
+3. 当前要执行的 `CLAUDE_CODE_TASK_*.md`
+4. 与任务相关的 `docs/0x_*.md`
+5. 契约权威来源：`docs/07_端边HTTP_JSON_Contract.md`
 
 ## 1. 当前阶段
 
 | 项目 | 状态 |
 |---|---|
-| 工作目录 | WSL 原生目录 `/home/qbz415/SafetyMonitor`；不要再使用 `/mnt/c/program1/SafetyMonitor` 开发 |
+| 工作目录 | `/home/qbz415/SafetyMonitor` |
 | 当前分支 | `migration/imx6ull-opi5-edge-ai` |
-| 最新迁移提交 | `9889e1d task12-i: update CLAUDE.md and DEVPLAN.md status`；Task12-I 已完成 |
-| 总体阶段 | i.MX6ULL 末期故障，主控迁移至 OPi5；OPi5 临时一板双进程（安全闭环 + AI） |
-| 新主线 | OPi5 临时主控（opi5_safetyd + opi5_ai_service）+ Flask |
-| 旧主线 | i.MX6ULL + OPi5 双板架构（i.MX 已故障，目录保留为证据）；STM32 + ESP32-CAM 归档为 legacy |
-| 当前执行器 | 本地 Codex / Claude Code |
-| 首要目标 | Task09 最终演示脚本、证据包、报告/PPT 口径收口 |
+| 当前主线 | OPi5 一板主控（opi5_safetyd + opi5_ai_service + opi5-device-agent）+ Flask + React |
+| 历史归档 | i.MX6ULL → `docs/archive/2026-imx6ull-stage/`；STM32/ESP32 → `legacy/` |
+| 当前重点 | 文档对齐、前后端/device-agent 字段对齐、最终演示脚本 |
 
-## 2. 项目主线与三机角色
+## 2. 当前活跃代码目录
 
-主线为 `Edge AI Safety Monitor`。原计划 i.MX6ULL Pro 负责本地安全控制，OPi5 负责 AI 推理。
-由于 i.MX6ULL 末期供电/启动异常，临时切换为 OPi5 一板双进程。
+| 目录 | 说明 |
+|---|---|
+| `edge/opi5-controller/` | OPi5 本地安全闭环 |
+| `edge/opi5-ai/` | OPi5 AI 推理服务 |
+| `edge/opi5-device-agent/` | OPi5 设备代理（心跳/遥测/视频/AI） |
+| `server/backend/` | Flask 后端 |
+| `server/frontend/` | React edge-console |
+| `config/templates/` | systemd/env 模板 |
+| `scripts/` | 构建/部署脚本 |
 
-| 节点 | 角色 | 部署/入口 |
-|---|---|---|
-| PC / WSL | 代码编辑、scp/ssh 部署 | `scripts/build_opi5_controller.sh`、`scripts/deploy_opi5.sh` |
-| Orange Pi 5（临时主控） | 本地安全闭环 `opi5_safetyd` + AI 推理 `opi5_ai_service`，两进程独立 | `/opt/edge-ai-safety-monitor/` |
-| i.MX6ULL Pro | 已故障，目录保留为工程迭代证据 | 不再部署 |
-| Flask + SQLite + Dashboard | PC 上运行，事件存储与可视化 | `server/backend/` |
+## 3. 安全红线
 
-真实地址 / SDK 路径 / 端口写在不入库的 `config/inventory.yaml`。
+1. 安全闭环必须留在 OPi5 本地 safetyd/controller 进程
+2. AI / Flask / 前端只展示/解释/通知，不直接控制执行器
+3. `control_allowed` 始终为 `false`
+4. 不接 220V；演示负载用低压直流
+5. 先空载再接负载；先 mock 再接真实
 
-## 3. 任务执行顺序（未过门槛不进下一步）
-
-| 顺序 | 入口文档 | 目标 | 通过门槛 |
-|---|---|---|---|
-| 1 | `CLAUDE_CODE_TASK_01_repo_migration_legacy_archive.md` | 迁移分支、legacy 归档、新目录 | 已完成：旧 STM32/ESP32 进 `legacy/`，新目录存在，无重复同号 docs |
-| 2 | `CLAUDE_CODE_TASK_02_wsl_imx6ull_toolchain_ssh.md` | WSL SDK、交叉编译、SSH 到 i.MX6ULL | `hello_imx6ull` 能在板端运行 |
-| 3 | `CLAUDE_CODE_TASK_03_imx6ull_gpio_i2c_pwm_bringup.md` | GPIO/I2C/PCA9685/MOS/云台验证 | 空载 PWM、舵机、MOS 负载均有 tests 记录 |
-| 4 | `CLAUDE_CODE_TASK_04_imx6ull_v4l2_capture.md` | V4L2 抓图 | 板端生成可打开图片，记录格式/耗时 |
-| 5 | `CLAUDE_CODE_TASK_05_opi5_rknn_inference_service.md` | OPi5 AI 服务（先 mock） | `/health` 与 `/api/infer/vision` 返回 JSON |
-| 6 | `CLAUDE_CODE_TASK_06_backend_contract_extension.md` | Flask 扩展 | 新旧事件均显示，旧接口兼容 |
-| 7 | `CLAUDE_CODE_TASK_07_end_edge_vertical_slice.md` | i.MX→OPi5→Flask 完整链路 | Dashboard 显示一条完整端边事件 |
-| 8 | `CLAUDE_CODE_TASK_08_pan_tilt巡检演示.md` | 云台巡检演示 | pan/tilt 角度、图片、AI 结果联动 |
-| 9 | `CLAUDE_CODE_TASK_10_imx6ull_sensor_actuator_p0.md` | P0 传感器/执行器真实化 | 门磁/火焰/MQ-2/PIR 真实 GPIO 读取 + 蜂鸣器/RGB 真实驱动；本地 ALARM 独立于网络/AI |
-| 10 | `CLAUDE_CODE_TASK_11_imx6ull_p1_oled_relay_soctemp_pump.md` | P1 OLED/继电器/SoC温度/水泵 | OLED 状态屏 + PCA9685 CH5/CH6 负载 + SoC 温度热健康 + 隔离水箱；全部已验证 |
-| 11 | Task12 网络与 AI 服务收口 | i.MX 板载 WiFi / OPi5 USB WiFi / 全无线热点链路 / 全无线自启动 / OPi5 Qwen3-VL 真实 AI systemd 自启动 | 全部已通过 |
-| 12 | `CLAUDE_CODE_TASK_09_*.md` | 最终演示脚本与证据包整理 | 待执行 |
-
-下一步：Task09 最终演示脚本与证据包整理。
-
-## 4. 已知 legacy 状态（只描述第一版，不作为新主线验收）
-
-| 项目 | 状态 | 说明 |
-|---|---|---|
-| ESP32-CAM 网络 POST | 历史已验证 | Flask 返回 201，Dashboard 显示 TEST，seq 递增 |
-| STM32 PA9/USART1_TX 输出 JSON | 历史已验证 | 最新会话记录显示 115200 8N1 JSON 可输出 |
-| STM32→ESP32-CAM GPIO13 最终桥接 | 未最终验收 | PA9 到 GPIO13 物理连接不可靠或引脚位置未确认 |
-| 当前 zip 内代码 | 与最新会话状态脱节 | zip 中 STM32 仍为 USART2/huart2，ESP32-CAM 仍默认 UART0 GPIO3/1 |
-
-## 5. 新硬件验证表（初始全为待验证，禁止预填“已通过”）
-
-| 模块 | 目标 | 初始状态 | 证据路径 | 对应 Task |
-|---|---|---|---|---|
-| i.MX6ULL SSH | PC/WSL 可登录 | 已验证 | `tests/imx6ull/2026-06-06_toolchain_ssh.md` | Task02 |
-| i.MX6ULL SDK | WSL 可交叉编译 | 已验证 | `tests/imx6ull/2026-06-06_toolchain_ssh.md` | Task02 |
-| GPIO 输入 | 门磁/PIR/火焰/按键至少一路 | 已验证（PIR / HC-SR501 DO -> J5 D0 / gpio117） | `tests/imx6ull/2026-06-06_gpio_input_probe.md` | Task03 |
-| I2C / PCA9685 | 发现地址并输出 50Hz PWM | 地址已验证；空载 PWM 软件准备完成，用户决定跳过波形实测 | `tests/imx6ull/2026-06-06_i2c_pca9685_probe.md`、`tests/imx6ull/2026-06-06_pca9685_pwm_empty_load.md` | Task03 |
-| MG90S 云台 | pan/tilt 可控 | 已验证（分时模式：CH0/CH1 各自 1100→1900us 大幅动作通过，无 5V 压降） | `tests/imx6ull/2026-06-06_pca9685_servo_small_angle.md` | Task03/08 |
-| MOS 低压负载 | 默认 OFF 且可控 | 本轮跳过（控制端需焊接，MVP 不依赖） | `tests/imx6ull/2026-06-06_mos_skip_decision.md` | Task03（扩展项） |
-| USB 摄像头 | `/dev/video1` 可抓图 | 已验证（UVC 1.00, MJPG 640x480, v4l2-ctl 抓帧成功） | `tests/imx6ull/2026-06-06_v4l2_capture.md` | Task04 |
-| OPi5 SSH / AI mock 服务 | 登录 + `/health`、`/api/infer/vision` mock 可用 | Task05-A 已验证 | `tests/opi5/2026-06-07_ai_mock_service.md` | Task05-A |
-| OPi5 Qwen3-VL 2B 真实 AI | VLM 真实推理 | Task05-B 已通过（rknn+rkllm，中文场景描述，~13s） | `tests/opi5/2026-06-07_qwen3vl_real_ai.md` | Task05-B |
-| OPi5 Qwen3-VL worker + i.MX 回归 | 持久化 worker + 端边闭环 | Task05-C 已通过（worker ~8.4s，i.MX→OPi5→Flask 201） | `tests/opi5/2026-06-07_qwen3vl_persistent_regression.md` | Task05-C |
-| OPi5 Qwen3-VL 真实 AI 自启动 | systemd 自启动 + 默认真实 AI | Task12-I 已通过（systemd enabled，重启后 mode=qwen3vl，i.MX→OPi5 infer ~5s，mock 保留为手动回退） | `tests/opi5/2026-06-08_qwen3vl_autostart_real_ai.md` | Task12-I |
-| Flask 扩展 | vision/AI/image 显示 | Task06 已验证 | `tests/integration/2026-06-07_backend_contract_extension.md` | Task06 |
-| 端边垂直切片 | i.MX→OPi5→Flask | Task07-C2 已验证（C 版 imx_safetyd：真实 gpio117 空闲读取、FORCE_VERIFY 抓拍、OPi5 mock AI、Flask 上报、offline 降级、spool/flush、loop；BusyBox init.d 启动管理；PIR 未人工触发 raw=1） | `tests/integration/2026-06-07_imx_safetyd_c.md`、`tests/integration/2026-06-07_imx_safetyd_initd.md` | Task07-C2 |
-| 门磁 door | gpio118 读取真实开合 | 本轮跳过（无外部 10k 上拉时裸读不稳定） | `tests/imx6ull/2026-06-07_p0_door_reed_switch_skip.md` | Task10-A |
-| 火焰 flame | gpio119 读取真实触发 | 已验证（3.3V 供电，DO 高有效，flame=1→ALARM） | `tests/imx6ull/2026-06-07_p0_flame_sensor.md` | Task10-B |
-| MQ-2 mq2 | gpio120 读取真实触发 | 已验证（课设短时：5V+DO直连，mq2=1→ALARM） | `tests/imx6ull/2026-06-07_p0_mq2_sensor.md` | Task10-C |
-| PIR 真实触发 | gpio117 取得 raw=1 证据 | 已验证（沿用 Task03-A 历史证据；Task10-D 不重复测试） | `tests/imx6ull/2026-06-06_gpio_input_probe.md`、`tests/imx6ull/2026-06-07_p0_pir_reuse_task03a.md` | Task10-D |
-| 蜂鸣器 buzzer | gpio122 + 三极管真实驱动 | 已验证（active low，0=响） | `tests/imx6ull/2026-06-07_p0_buzzer_rgb_outputs.md` | Task10-E |
-| RGB 状态色 | gpio121/123/124 真实驱动 | 已验证（G/B active high 正常，R 代码逻辑正确红灯待查硬件） | `tests/imx6ull/2026-06-07_p0_buzzer_rgb_outputs.md` | Task10-E |
-| RGB PCA9685 PWM | PCA9685 CH2/CH3/CH4 PWM 驱动 RGB | 已验证（新 RGB 模块三路均亮，亮度良好） | `tests/imx6ull/2026-06-07_p0_rgb_pca9685_pwm.md` | Task10-E2 |
-| OLED SSD1306 | I2C 0x3C 本地状态屏 | 已验证（oled_test 刷屏，imx_safetyd loop 可刷新 state/risk/sensors） | `tests/imx6ull/2026-06-07_p1_oled_status_screen.md` | Task11-A |
-| Relay CH5 | PCA9685 CH5 → KY-019 继电器 | 已验证（active high，default OFF，ALARM 动作） | `tests/imx6ull/2026-06-07_p1_relay_ch5.md` | Task11-B |
-| SoC 温度 | thermal_zone0 读取，device_health 热健康 | 已验证（46.6°C，WARN 阈值可配置，不触发 ALARM） | `tests/imx6ull/2026-06-07_p1_soc_temp_health.md` | Task11-C |
-| Pump CH6 双负载 | PCA9685 CH6 → MOS → 水泵+水枪 | 已验证（active high，default OFF，ALARM 动作，双负载并联） | `tests/imx6ull/2026-06-07_p1_pump_water_tank.md` | Task11-D |
-| i.MX 板载 WiFi | RTL8723BU wlan0 全无线 | 已验证（nl80211，S45wifi-client 自启动，重启后自动连接手机热点） | `tests/imx6ull/2026-06-08_imx6ull_onboard_rtl8723bu_wifi_retry.md` | Task12-E |
-| OPi5 USB WiFi | RTL8188ETV 全无线 | 已验证（8188eu 驱动，nmcli autoconnect，8188eu 自动加载） | `tests/opi5/2026-06-08_opi5_usb_wifi_rtl8188eu.md` | Task12-F |
-| 全无线热点链路 | PC/i.MX/OPi5 同一热点 | 已验证（i.MX→OPi5 AI health/infer + i.MX→PC Flask 全通） | `tests/integration/2026-06-08_full_wireless_hotspot_chain.md` | Task12-F |
-| 全无线自启动 | 重启后自动恢复 | 已验证（i.MX + OPi5 重启后 WiFi 自动连接，AI 服务自动恢复） | `tests/integration/2026-06-08_full_wireless_autostart_regression.md` | Task12-G |
-| OPi5 Qwen3-VL 自启动 | systemd 默认真实 AI | 已验证（opi5-ai-qwen3vl.service enabled，重启后 mode=qwen3vl，i.MX→OPi5 infer ~5s） | `tests/opi5/2026-06-08_qwen3vl_autostart_real_ai.md` | Task12-I |
-
-## 6. 允许做的事
-
-- 重写根目录文档与 `docs/00–14`（保持编号，不新增 `docs/15`）。
-- 移动旧 `firmware/stm32`、`firmware/esp32cam` 到 `legacy/2026-stm32-esp32/`。
-- 在 `edge/imx6ull-controller/`、`edge/opi5-ai/` 新建 Linux 控制程序与 AI 服务。
-- 在 `server/backend/` 增量扩展字段与页面，保持旧 `/api/events` 兼容。
-- 在 `common/contracts/`、`scripts/`、`tests/` 维护契约、脚本与真实测试记录。
-- 用 `git mv` 归档，不删历史。
-
-## 7. 禁止做的事
+## 4. 禁止做的事
 
 | 禁止 | 原因 |
 |---|---|
-| 把旧 STM32/ESP32-CAM 链路写成最终通过 | 只归档事实，不美化 |
-| 继续死磕 STM32→ESP32-CAM UART 桥接 | 已退出新主线 |
-| 删除旧代码历史 | legacy 是答辩中的工程迭代证据 |
-| 重写 Flask 为另一框架 / 覆盖真实 `app.py`、`database.py` | 现有 Flask 是最可复用资产，只增量改 |
-| 让 OPi5 / Flask / AI 直接控制执行器 | 安全闭环必须留在 i.MX6ULL；`control_allowed` 恒为 `false` |
-| 提交 `config/inventory.yaml`、`.env`、模型权重、数据库、抓拍图片、真实 IP/密码/密钥 | 入库安全 |
-| 给舵机/水泵用板卡 IO 直接供电；使用 220V 负载 | 硬件安全 |
-| 把未实测硬件写成“已通过” | 报告须与真实状态一致 |
+| 把 i.MX6ULL 写成当前主控 | 已归档为历史 |
+| 把未实测硬件写成"已通过" | 报告须与真实状态一致 |
+| 让 AI/Flask/前端直接控制执行器 | 安全边界 |
+| 提交 config/inventory.yaml、.env、模型权重、数据库 | 入库安全 |
+| 删除旧代码历史 | legacy 是答辩证据 |
 
-## 8. 安全红线（最高优先级）
+## 5. 命令与配置
 
-1. 本地安全闭环优先：无网络 / 无摄像头 / 无 AI 时，i.MX6ULL 仍能依据本地传感器进入安全状态。
-2. AI / Dashboard / 上层只返回 `risk_hint`、解释与展示，不直接控制蜂鸣器、RGB、继电器、水泵。
-3. 不接 220V；演示负载用低压直流；舵机与负载独立供电、星形共地；执行器默认 OFF、MOS 栅极下拉。
-4. 先空载 PWM 再接 MG90S；先 LED 再接水泵；先 mock AI 再接真实 RKNN。
+- 真实环境值从不入库的 `config/inventory.yaml` 读取
+- 仓库内只放 `config/inventory.example.yaml`
+- 部署脚本：`scripts/deploy_opi5.sh`
 
-## 9. 命令与配置原则
-
-- 真实环境值（IP、用户名、端口、SDK 路径、AI 端口）只从不入库的 `config/inventory.yaml` 读取；
-  仓库内只放 `config/inventory.example.yaml`。脚本通过 `scripts/lib_inventory.sh` 取值，不写死。
-
-```bash
-cp config/inventory.example.yaml config/inventory.yaml
-```
-
-- `config/inventory.yaml` 已在 WSL 本地创建，用于本机真实值，禁止提交。
-- 交叉编译与部署：`scripts/build_imx6ull.sh`、`scripts/deploy_imx6ull.sh`、`scripts/deploy_opi5.sh`。
-- SDK 环境变量与工具链三元组在 Task02 中确认；若 SDK 无 `environment-setup-*`，则写入 `inventory.yaml` 的 `imx6ull.cc`。
-
-## 10. 端边 Contract 原则
-
-`docs/07_端边HTTP_JSON_Contract.md` 是唯一权威来源，代码字段必须与之同步。
-保留旧事件语义 `type/device_id/seq/state/risk_score/need_snap/sensors/actuators`；
-新增 `vision/ai_result/image_url/latency_ms/frame_id/pan_tilt` 只能向后兼容（旧后端能忽略或存入 `raw_json`）。
-后端扩展落点见 `server/backend/CONTRACT_EXTENSION_NOTES.md`（`raw_json` 已存全量 payload，存储天然兼容）。
-
-## 11. 标记规范（与 CANONICAL 一致）
-
-需要本地验证/填值/调查/实测/决策处，统一用可 grep 的块：
+## 6. 标记规范
 
 ```text
 > **[CLAUDE_CODE_TODO | 类型]** 一句话说明
@@ -163,65 +66,11 @@ cp config/inventory.example.yaml config/inventory.yaml
 > - 验收：完成标准
 ```
 
-类型：`VERIFY` `FILL` `INVESTIGATE` `MEASURE` `DECIDE`。默认假设用 `> **[ASSUMPTION]** ...`。
-检索全部待办：
+检索待办：`grep -RIn "\[CLAUDE_CODE_TODO" .`
 
-```bash
-grep -RIn "\[CLAUDE_CODE_TODO" .
-```
+## 7. 完成任务后的回填
 
-## 12. 已完成任务记录
-
-| Task | 状态 | 证据/产物 | 说明 |
-|---|---|---|---|
-| Task01 仓库迁移与 legacy 归档 | 已完成 | `legacy/2026-stm32-esp32/`、`tests/legacy/2026-06-05_task01_repo_migration_record.md`、提交 `a44fd9f` | 旧 STM32/ESP32-CAM 工程与旧测试记录已归档，新主线目录和文档包已落地。 |
-| Task02 WSL/i.MX6ULL SDK/SSH/hello 部署 | 已完成 | `tests/imx6ull/2026-06-06_toolchain_ssh.md`、提交 `52c4392` 后续收尾提交 | SDK 已交叉编译 hello，WSL/PC SSH 恢复后板端输出 `hello from imx6ull target`。 |
-| Task03 GPIO/I2C/PWM/云台 | 收尾完成 | `tests/imx6ull/2026-06-06_*.md` | GPIO 输入通过；I2C/PCA9685 地址通过；MG90S 分时云台通过；PWM 波形实测跳过；MOS 跳过。 |
-| Task04 V4L2 USB 摄像头抓拍 | 已通过 | `tests/imx6ull/2026-06-06_v4l2_capture.md`、`tests/imx6ull/artifacts/2026-06-06_task04_latest.jpg` | USB 免驱摄像头（UVC 1.00）识别成功，v4l2-ctl 抓取 640x480 MJPEG 帧，保存为有效 JPEG 图片。 |
-| Task05-A OPi5 AI mock 服务 | 已通过 | `tests/opi5/2026-06-07_ai_mock_service.md` | OPi5 mock AI 服务部署通过，`/health` 与 `/api/infer/vision` 返回符合 docs/07 的 JSON，`control_allowed=false`。 |
-| Task06 Flask 契约扩展 | 已通过 | `tests/integration/2026-06-07_backend_contract_extension.md` | 未改 DB schema，`raw_json` 透出 AI/视觉字段，Dashboard 新增 AI 展示区。 |
-| Task07-A 端边最小垂直切片 | 已通过 | `tests/integration/2026-06-07_end_edge_vertical_slice.md` | i.MX 抓拍→OPi5 mock AI→Flask 完整链路通过，`control_allowed=false`，延迟 capture=470ms/ai=135ms/post=146ms。 |
-| Task07-B imx_safetyd-lite | 已通过 | `tests/integration/2026-06-07_imx_safetyd_lite.md` | Shell 版 MVP 控制端：真实 PIR gpio117 读取、NORMAL/VERIFY、OPi5 降级、Flask spool/flush 通过；`FORCE_VERIFY=1` 用于 VERIFY 测试。 |
-| Task08-A 云台分时巡检 | 已通过 | `tests/imx6ull/2026-06-07_pan_tilt_demo.md` | PCA9685+MG90S 三点扫描、抓拍、OPi5 mock AI、Flask 上报通过；`control_allowed=false`。 |
-| Task07-C C 版 imx_safetyd | 已通过 | `tests/integration/2026-06-07_imx_safetyd_c.md` | C 版主控程序已交叉编译并部署到 i.MX6ULL，支持 `once/loop/flush`、读取真实 PIR gpio117、NORMAL/VERIFY/FAULT 最小状态机、VERIFY 抓拍、OPi5 mock AI、干净 fallback AI、Flask 上报、pending spool、flush 到 sent、运行日志和 status JSON；当前板端无 `systemctl`，systemd 模板仅入库备用；本轮 PIR 仅测到空闲 raw=0，VERIFY 使用 `FORCE_VERIFY=1`。 |
-| Task07-C2 init.d 启动管理 | 已通过 | `tests/integration/2026-06-07_imx_safetyd_initd.md` | BusyBox/SysV `init.d` 适配完成，支持 `start/stop/restart/status`、PID 文件、日志追加、重复启动防护；板端 `/etc/init.d/rcS` 会执行 `S??*`，具备开机自启条件；`/etc/edge-ai-safety-monitor/imx-safetyd.env` 由板端手动创建，未入库。 |
-| Task10-E 蜂鸣器 + RGB 输出 | 已通过 | `tests/imx6ull/2026-06-07_p0_buzzer_rgb_outputs.md` | buzzer active low (gpio122=0 响)；RGB-G/B active high 正常；RGB-R 代码逻辑正确红灯待查硬件；NORMAL 绿灯/VERIFY 蓝灯/ALARM 红灯+蜂鸣器驱动正确；all_off 清理保护。 |
-| Task10-E2 RGB PCA9685 PWM | 已通过 | `tests/imx6ull/2026-06-07_p0_rgb_pca9685_pwm.md` | PCA9685 CH2/CH3/CH4 PWM 驱动 RGB 全部正常；新 RGB 模块三路均亮；RGB_BACKEND 可选 gpio/pca9685；蜂鸣器仍 gpio122；演示推荐 pca9685。 |
-| Task10 P0 传感器/执行器真实化 | 主体完成 | `tests/imx6ull/2026-06-07_p0_*.md` | 10-B 火焰通过、10-C MQ-2 通过、10-D PIR 沿用历史、10-E 蜂鸣器+RGB 通过、10-E2 RGB PCA9685 PWM 通过；10-A 门磁跳过。 |
-| Task11 P1 扩展 | 主体完成 | `CLAUDE_CODE_TASK_11_*.md`、CANONICAL 0.7 | 11-A/11-B/11-C/11-D 全部通过；P1 扩展主体完成 |
-| Task11-A OLED 状态屏 | 已通过 | `tests/imx6ull/2026-06-07_p1_oled_status_screen.md` | SSD1306 I2C 0x3C，oled_test 刷屏，imx_safetyd loop 可刷新 state/risk/sensors/actuators |
-| Task11-B Relay CH5 | 已通过 | `tests/imx6ull/2026-06-07_p1_relay_ch5.md` | KY-019 PCA9685 CH5 active high，默认 OFF，ALARM 时 relay=1，all_off 释放 |
-| Task11-C SoC 温度热健康 | 已通过 | `tests/imx6ull/2026-06-07_p1_soc_temp_health.md` | thermal_zone0 可读 46.6°C，device_health WARN/NORMAL 可配置，不触发 ALARM，OLED 显示温度 |
-| Task11-D Pump 双负载水箱 | 已通过 | `tests/imx6ull/2026-06-07_p1_pump_water_tank.md` | PCA9685 CH6 双负载（水泵+水枪），active high，默认 OFF，ALARM 时 pump=1，all_off 释放 |
-| Task12-E i.MX 板载 RTL8723BU WiFi | 已通过 | `tests/imx6ull/2026-06-08_imx6ull_onboard_rtl8723bu_wifi_retry.md` | 板载 RTL8723BU/0bda:b720，必须 nl80211（wext 连接后断开），wlan0 可用，S45wifi-client 自启动 |
-| Task12-F 全无线热点链路 | 已通过 | `tests/integration/2026-06-08_full_wireless_hotspot_chain.md` | PC/i.MX/OPi5 三台均连手机热点，i.MX→OPi5 AI health/infer + i.MX→PC Flask 全通，无需 portproxy |
-| Task12-G 全无线自启动与代理清理 | 已通过 | `tests/integration/2026-06-08_full_wireless_autostart_regression.md` | i.MX + OPi5 重启后 WiFi 自动连接，AI 服务自动恢复，代理清理 |
-| Task12-H 文档同步收口 | 已通过 | 提交 `800a764` | 全无线网络链路文档同步 |
-| Task12-I OPi5 Qwen3-VL 真实 AI 自启动 | 已通过 | `tests/opi5/2026-06-08_qwen3vl_autostart_real_ai.md` | systemd 自启动，默认 Qwen3-VL 真实 AI（非 mock），API 内嵌 worker 管理，重启后自动恢复，i.MX→OPi5 infer ~5s；mock 保留为手动回退；清理 OPi5 旧代理配置 |
-
-## 13. 后续增强路线（可选，不阻塞 MVP）
-
-| 增强项 | 目标 | 前置条件 | 风险 |
-|---|---|---|---|
-| Task07-D1 原生 libcurl | 替换 curl 子进程 | 确认 sysroot 有 libcurl | 依赖库缺失 |
-| Task07-D2 原生 V4L2 | 替换 v4l2-ctl 子进程 | 无 | mmap 流程复杂 |
-| Task07-D3 C 模块化拆分 | 单文件拆分为多模块 | D1/D2 完成后更自然 | 集成回归 |
-
-当前稳定基线：i.MX imx_safetyd + 全无线热点链路 + OPi5 Qwen3-VL 真实 AI systemd 自启动 + Flask Dashboard。Task07-D 原生 libcurl/V4L2 仍是可选增强，不阻塞最终演示。
-
-## 14. 完成任务后的固定回填
-
-每完成一个 Task：
-
-1. 更新 `AGENTS.md` / `CLAUDE.md` 第 1 / 第 5 / 第 12 节状态。
-2. 更新 `DEVPLAN.md` 看板。
-3. 在 `tests/<scope>/YYYY-MM-DD_*.md` 记录真实命令、结果、截图/波形路径。
-4. 关闭或改写对应 `[CLAUDE_CODE_TODO]`，并按需重生成 `CLAUDE_CODE_TODO_INDEX.md`。
-5. 提交信息：`taskXX: 简短说明`；提交粒度小，不混多个 Task。
-
-## 15. Claude Code 专属提示
-
-- 本文件（`CLAUDE.md`）与 `AGENTS.md` 同步；遇到 `AGENTS.md` 中的规则一律视为同样适用。
-- 不确定硬件值/路径/IP/模型名时，新增 `[CLAUDE_CODE_TODO]`，不要猜、不要编造命令输出。
-- 每完成一步先跑最小可行验证，再扩大；任何对 `server/backend/` 的改动必须保持旧 `/api/events` 兼容。
-- 当前未跟踪的 `reviewed_docs_tmp/`、`temp_docs/`、`tmp/`、`worktree.txt` 是临时材料，不要默认提交。
+1. 更新 `CANONICAL_DECISIONS.md` 状态
+2. 更新 `DEVPLAN.md` 看板
+3. 在 `tests/<scope>/YYYY-MM-DD_*.md` 记录证据
+4. 提交信息：`taskXX: 简短说明`
