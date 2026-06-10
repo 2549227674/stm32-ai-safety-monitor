@@ -58,16 +58,30 @@ export default function PageOverview({ sim, nav }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
           <Card title="最近 AI 观察" sub="GET /api/ai/observations/latest"
             right={<button className="btn ghost" onClick={() => nav("ai")}>全部 →</button>}>
-            {ai ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  {ai.status === "mock" ? <Tag level="degraded">mock 降级</Tag> : <Tag level={ai.risk_hint >= 7 ? "danger" : ai.risk_hint >= 4 ? "warn" : "ok"}>risk_hint {ai.risk_hint}/10</Tag>}
-                  {(ai.labels || []).map((l) => <Tag key={l}>{l}</Tag>)}
-                  <span className="mono t3" style={{ fontSize: 11, marginLeft: "auto" }}>{fmtTime(ai.timestamp)}</span>
+            {(() => {
+              // real 模式：检查观察是否过期（>90s）
+              const isReal = sim.mode === "real";
+              const now = Math.floor(Date.now() / 1000);
+              const stale = isReal && ai && (now - (typeof ai.timestamp === "number" ? ai.timestamp : new Date(ai.timestamp).getTime() / 1000)) > 90;
+              const showAi = ai && !stale;
+              const isMock = !isReal || (ai && ai.status === "mock");
+
+              if (!showAi) {
+                return <Empty>{isReal ? "暂无有效 AI 观察 · 等待设备上传" : "等待首次 AI 观察…"}</Empty>;
+              }
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    {isMock ? <Tag level="degraded">mock</Tag> : <Tag level={ai.risk_hint >= 7 ? "danger" : ai.risk_hint >= 4 ? "warn" : "ok"}>risk_hint {ai.risk_hint}/10</Tag>}
+                    {(ai.labels || []).map((l) => <Tag key={l}>{l}</Tag>)}
+                    <span className="mono t3" style={{ fontSize: 11, marginLeft: "auto" }}>{fmtTime(ai.timestamp)}</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.65, color: "var(--text)" }}>
+                    {isMock ? <span style={{ color: "var(--text-3)" }}>[mock] </span> : null}{ai.summary}
+                  </p>
                 </div>
-                <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.65, color: "var(--text)" }}>{ai.summary}</p>
-              </div>
-            ) : <Empty>等待首次 AI 观察…</Empty>}
+              );
+            })()}
           </Card>
           <Card title="风险趋势" sub="10 min">
             <TimeChart data={sim.getSeries("risk")} warn={T.risk_score.warn} danger={T.risk_score.danger} yMin={0} yMax={10} height={120} color={riskColor(riskLevel(risk))} />

@@ -85,6 +85,20 @@ function Empty({ icon, children }) {
 
 /* ---------- scenario → 全局状态推导 ---------- */
 function systemStatus(sim) {
+  // real 模式：优先看设备状态
+  if (sim.mode === "real") {
+    const dev = sim.device;
+    if (!dev || !dev.online) return { level: "off", label: "设备离线", pill: "danger", blink: true };
+    const aiOk = dev.ai && dev.ai.ok;
+    const cameraOk = sim.videoOnline && sim.cameraStatus === "online";
+    if (!aiOk && !cameraOk) return { level: "degraded", label: "降级运行", pill: "degraded", blink: false };
+    if (!cameraOk) return { level: "warn", label: "视频异常", pill: "warn", blink: false };
+    const risk = sim.latest("risk");
+    if (riskLevel(risk) === "danger") return { level: "danger", label: "告警", pill: "danger", blink: true };
+    if (riskLevel(risk) === "warn") return { level: "warn", label: "需关注", pill: "warn", blink: false };
+    return { level: "ok", label: "运行正常", pill: "ok", blink: false };
+  }
+  // mock 模式：看 scenario
   const s = sim.scenario;
   const risk = sim.latest("risk");
   if (s === "offline") return { level: "off", label: "设备离线", pill: "danger", blink: true };
@@ -94,12 +108,14 @@ function systemStatus(sim) {
   return { level: "ok", label: "运行正常", pill: "ok", blink: false };
 }
 
-/* ---------- 视频面（image-slot + HUD + 状态层） ---------- */
+/* ---------- 视频面（real MJPEG / mock 占位） ---------- */
 function VideoSurface({ sim }) {
-  const scen = sim.scenario;
+  const isReal = sim.mode === "real";
   const risk = sim.latest("risk");
   const lvl = riskLevel(risk);
   const [clock, setClock] = React.useState("");
+  const [imgError, setImgError] = React.useState(false);
+
   React.useEffect(() => {
     const tick = () => {
       const d = new Date();
@@ -111,36 +127,77 @@ function VideoSurface({ sim }) {
     return () => clearInterval(t);
   }, []);
 
-  const offline = scen === "offline";
-  const degraded = scen === "degraded";
-  const fps = offline ? 0 : degraded ? 6 : 25;
-  const ai = sim.ai.find((o) => o.ok);
+  // real 模式状态判断
+  const dev = sim.device;
+  const deviceOnline = isReal ? (dev && dev.online) : (sim.scenario !== "offline");
+  const cameraOk = isReal ? (sim.videoOnline && sim.cameraStatus === "online") : deviceOnline;
+  const videoSrc = isReal && deviceOnline ? `/api/video/stream?device_id=${sim._realDeviceId || "edge-opi5-001"}` : null;
+
+  const showNoSignal = !deviceOnline || (isReal && !cameraOk);
+  const showMockPlaceholder = !isReal && sim.scenario !== "offline";
 
   return (
     <div className="video-wrap" style={{ aspectRatio: "16 / 9" }}>
-      <image-slot
-        id="live-frame-main"
-        shape="rect"
-        placeholder="拖入一张摄像头画面截图（演示帧）"
-      ></image-slot>
+      {/* 真实模式：MJPEG 流 */}
+      {isReal && deviceOnline && cameraOk && !imgError && (
+        <img
+          src={videoSrc}
+          alt="CAM-01 实时流"
+          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+          onError={() => setImgError(true)}
+        />
+      )}
+
+      {/* mock 模式：image-slot 占位 */}
+      {!isReal && (
+        <image-slot
+          id="live-frame-main"
+          shape="rect"
+          placeholder="拖入一张摄像头画面截图（演示帧）"
+        ></image-slot>
+      )}
+
       <div className="scanline"></div>
 
-      {offline && (
+      {/* 无信号状态 */}
+      {showNoSignal && (
         <div className="video-state">
           <span style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.2em", color: "var(--danger)" }}>NO SIGNAL</span>
-          <span>视频流断开 · 等待设备心跳恢复</span>
-          <span className="t3" style={{ fontSize: 11.5, fontFamily: "var(--mono)" }}>GET /api/video/stream → 503</span>
+          {isReal ? (
+            <React.Fragment>
+              <span>{!deviceOnline ? "设备离线 · 等待心跳恢复" : "视频流未连接 · 等待摄像头"}</span>
+              <span className="t3" style={{ fontSize: 11.5, fontFamily: "var(--mono)" }}>
+                {sim.videoError ? `错误: ${sim.videoError}` : "GET /api/video/stream → 等待"}
+              </span>
+            </React.Fragment>
+          ) : (
+            <React.Fragment>
+              <span>视频流断开 · 等待设备心跳恢复</span>
+              <span className="t3" style={{ fontSize: 11.5, fontFamily: "var(--mono)" }}>mock 模式 · 设备离线场景</span>
+            </React.Fragment>
+          )}
         </div>
       )}
 
+      {/* 图片加载失败 */}
+      {isReal && deviceOnline && cameraOk && imgError && (
+        <div className="video-state">
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.2em", color: "var(--warn)" }}>STREAM ERROR</span>
+          <span>视频流加载失败 · 设备可能未推流</span>
+          <button className="btn" style={{ marginTop: 8 }} onClick={() => setImgError(false)}>重试</button>
+        </div>
+      )}
+
+      {/* HUD */}
       <div className="hud">
         <div className="hud-row">
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <span className="hud-chip">
-              <span className="dot" style={{ background: offline ? "var(--off)" : "var(--danger)", boxShadow: offline ? "none" : "0 0 5px var(--danger)" }}></span>
-              {offline ? "OFFLINE" : "LIVE"} · CAM-01
+              <span className="dot" style={{ background: !deviceOnline ? "var(--off)" : cameraOk ? "var(--ok)" : "var(--warn)", boxShadow: deviceOnline && cameraOk ? "0 0 5px var(--ok)" : "none" }}></span>
+              {!deviceOnline ? "OFFLINE" : cameraOk ? "LIVE" : "NO CAM"} · CAM-01
             </span>
-            <span className="hud-chip">{fps} FPS · MJPEG 1280×720</span>
+            {isReal && <span className="hud-chip">{cameraOk && !imgError ? "MJPEG" : "断流"}</span>}
+            {!isReal && <span className="hud-chip">25 FPS · MJPEG 1280×720 · mock</span>}
           </div>
           <span className="hud-chip">{clock}</span>
         </div>
@@ -149,10 +206,8 @@ function VideoSurface({ sim }) {
             <span className="dot" style={{ background: riskColor(lvl) }}></span>
             risk {risk == null ? "—" : risk.toFixed(1)}/10
           </span>
-          {!offline && ai && (
-            <span className="hud-chip" style={{ maxWidth: "62%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", lineHeight: "18px" }}>
-              AI · {ai.status === "mock" ? "[mock] " : ""}{(ai.summary || "").slice(0, 38)}…
-            </span>
+          {isReal && (
+            <span className="hud-chip" style={{ fontSize: 9, color: "var(--ok)" }}>REAL</span>
           )}
         </div>
       </div>

@@ -38,15 +38,27 @@ export default function PageLive({ sim }) {
           </div>
         </Card>
         <Card title="AI 巡检解读" sub="每 30s 一次">
-          {ai ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
-                {ai.status === "mock" ? <Tag level="degraded">mock</Tag> : <Tag level={ai.risk_hint >= 7 ? "danger" : ai.risk_hint >= 4 ? "warn" : "ok"}>{ai.risk_hint}/10</Tag>}
-                <span className="mono t3" style={{ fontSize: 11 }}>{timeAgo(ai.timestamp)}</span>
+          {(() => {
+            const isReal = sim.mode === "real";
+            const now = Math.floor(Date.now() / 1000);
+            const stale = isReal && ai && (now - (typeof ai.timestamp === "number" ? ai.timestamp : new Date(ai.timestamp).getTime() / 1000)) > 90;
+            const showAi = ai && !stale;
+            const isMock = !isReal || (ai && ai.status === "mock");
+            if (!showAi) {
+              return <Empty>{isReal ? "暂无有效 AI 观察 · 等待设备上传" : "暂无观察"}</Empty>;
+            }
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+                  {isMock ? <Tag level="degraded">mock</Tag> : <Tag level={ai.risk_hint >= 7 ? "danger" : ai.risk_hint >= 4 ? "warn" : "ok"}>{ai.risk_hint}/10</Tag>}
+                  <span className="mono t3" style={{ fontSize: 11 }}>{timeAgo(ai.timestamp)}</span>
+                </div>
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "var(--text-2)" }}>
+                  {isMock ? <span style={{ color: "var(--text-3)" }}>[mock] </span> : null}{ai.full_text || ai.summary}
+                </p>
               </div>
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: "var(--text-2)" }}>{ai.full_text || ai.summary}</p>
-            </div>
-          ) : <Empty>暂无观察</Empty>}
+            );
+          })()}
         </Card>
         <Card title="安全传感器">
           <BinaryStrip rows={[

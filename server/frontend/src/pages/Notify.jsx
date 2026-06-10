@@ -22,6 +22,9 @@ export default function PageNotify({ sim }) {
 
   function save() {
     const patch = { enabled: draft.enabled, alert_email_to: draft.alert_email_to.trim(), cooldown_seconds: Math.max(0, Number(draft.cooldown_seconds) || 0), smtp_host: draft.smtp_host.trim(), smtp_port: Number(draft.smtp_port) || 0, smtp_user: draft.smtp_user.trim(), smtp_from: draft.smtp_from.trim() };
+    if (draft.smtp_password && draft.smtp_password.length > 0) {
+      patch.smtp_password = draft.smtp_password;
+    }
     sim.updateNotifSettings(patch);
     setDraft((d) => ({ ...d, ...patch, smtp_password: "" }));
     setSavedAt(Date.now());

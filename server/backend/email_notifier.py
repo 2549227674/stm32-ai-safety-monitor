@@ -10,6 +10,8 @@ from email.mime.multipart import MIMEMultipart
 
 
 class EmailNotifier:
+    CONFIG_FILE = os.path.join(os.path.dirname(__file__), "notification_config.json")
+
     def __init__(self, db_get_connection):
         self._db = db_get_connection
         self._lock = threading.Lock()
@@ -17,6 +19,24 @@ class EmailNotifier:
         self._init_delivery_log()
 
     def _load_config(self):
+        # 优先从文件加载，否则从环境变量
+        if os.path.exists(self.CONFIG_FILE):
+            try:
+                with open(self.CONFIG_FILE, "r") as f:
+                    cfg = json.load(f)
+                self.enabled = cfg.get("enabled", False)
+                self.smtp_host = cfg.get("smtp_host", "")
+                self.smtp_port = int(cfg.get("smtp_port", 465))
+                self.smtp_user = cfg.get("smtp_user", "")
+                self.smtp_password = cfg.get("smtp_password", "")
+                self.smtp_from = cfg.get("smtp_from", self.smtp_user)
+                self.alert_email_to = cfg.get("alert_email_to", "")
+                self.cooldown_seconds = int(cfg.get("cooldown_seconds", 300))
+                self.use_tls = cfg.get("use_tls", True)
+                return
+            except Exception:
+                pass
+        # 环境变量 fallback
         self.enabled = os.environ.get("ALERT_EMAIL_ENABLED", "0") == "1"
         self.smtp_host = os.environ.get("SMTP_HOST", "")
         self.smtp_port = int(os.environ.get("SMTP_PORT", "465"))
@@ -26,6 +46,24 @@ class EmailNotifier:
         self.alert_email_to = os.environ.get("ALERT_EMAIL_TO", "")
         self.cooldown_seconds = int(os.environ.get("ALERT_EMAIL_COOLDOWN_SECONDS", "300"))
         self.use_tls = os.environ.get("SMTP_USE_TLS", "1") == "1"
+
+    def _save_config(self):
+        cfg = {
+            "enabled": self.enabled,
+            "smtp_host": self.smtp_host,
+            "smtp_port": self.smtp_port,
+            "smtp_user": self.smtp_user,
+            "smtp_password": self.smtp_password,
+            "smtp_from": self.smtp_from,
+            "alert_email_to": self.alert_email_to,
+            "cooldown_seconds": self.cooldown_seconds,
+            "use_tls": self.use_tls,
+        }
+        try:
+            with open(self.CONFIG_FILE, "w") as f:
+                json.dump(cfg, f, indent=2)
+        except Exception:
+            pass
 
     def _init_delivery_log(self):
         with self._db() as conn:
@@ -75,6 +113,7 @@ class EmailNotifier:
             self.cooldown_seconds = int(settings["cooldown_seconds"])
         if "use_tls" in settings:
             self.use_tls = bool(settings["use_tls"])
+        self._save_config()
 
     def send_test_email(self):
         if not self._can_send():

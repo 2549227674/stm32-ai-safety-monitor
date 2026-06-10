@@ -96,6 +96,9 @@
     _sseSource: null,
     _pollTimer: null,
     _realDeviceId: null,
+    videoOnline: false,
+    videoError: null,
+    cameraStatus: "unknown",
   };
   METRICS.forEach((m) => (sim.buf[m] = []));
 
@@ -159,6 +162,89 @@
   const nowSec = () => Math.floor(Date.now() / 1000);
 
   /* ============================================================
+     数据归一化：统一后端返回格式
+     ============================================================ */
+
+  function normalizeDevice(dev) {
+    if (!dev) return null;
+    const s = dev.status || {};
+    const hb = s.heartbeat || {};
+    const h = s.health || dev.health || {};
+    const svcs = s.services || dev.services || {};
+    const aiInfo = s.ai || dev.ai || {};
+    return {
+      device_id: dev.device_id,
+      online: dev.online != null ? dev.online : (dev.last_seen_at ? (nowSec() - new Date(dev.last_seen_at).getTime() / 1000 < 15) : false),
+      last_seen_at: dev.last_seen_at,
+      agent_version: dev.agent_version || hb.agent_version || "—",
+      contract_version: dev.contract_version || hb.contract_version || "—",
+      ip: dev.ip || hb.ip || "—",
+      uptime_s: dev.uptime_s || hb.uptime_s || null,
+      health: {
+        cpu_temp_c: h.cpu_temp_c ?? null,
+        mem_used_mb: h.mem_used_mb ?? null,
+        mem_total_mb: h.mem_total_mb ?? 15876,
+        cpu_load_1m: h.cpu_load_1m ?? null,
+        disk_used_pct: h.disk_used_pct ?? null,
+      },
+      services: {
+        device_agent: svcs.device_agent || "unknown",
+        "opi5-ai-qwen3vl": svcs["opi5-ai-qwen3vl"] || "unknown",
+        "opi5-safetyd": svcs["opi5-safetyd"] || "unknown",
+      },
+      ai: {
+        ok: aiInfo.ok != null ? aiInfo.ok : false,
+        mode: aiInfo.mode || "unknown",
+        model_ready: aiInfo.model_ready || false,
+        error: aiInfo.error || null,
+      },
+      camera: dev.camera || s.camera || "unknown",
+    };
+  }
+
+  function normalizeAlert(a) {
+    if (!a) return null;
+    const ts = a.timestamp ? Math.floor(new Date(a.timestamp).getTime() / 1000) : (a.ts || nowSec());
+    return {
+      id: a.id || ("alr_" + Math.random().toString(36).slice(2)),
+      ts,
+      level: a.level || "info",
+      metric: a.metric || "",
+      msg: a.message || a.msg || "",
+      source: a.source || a.device_id || "",
+      email: a.email || null,
+    };
+  }
+
+  function normalizeObservation(obs) {
+    if (!obs) return null;
+    const ts = obs.timestamp ? Math.floor(new Date(obs.timestamp).getTime() / 1000) : (obs.ts || nowSec());
+    const id = obs.id || ("obs_" + ts);
+    return {
+      ...obs,
+      id,
+      timestamp: ts,
+      ok: obs.ok != null ? obs.ok : (obs.status === "ok"),
+      status: obs.status || (obs.ok ? "ok" : "error"),
+      risk_hint: obs.risk_hint ?? null,
+      summary: obs.summary || "",
+      full_text: obs.full_text || obs.explanation || "",
+      labels: obs.labels || [],
+      run_metrics: obs.run_metrics || null,
+      control_allowed: obs.control_allowed != null ? obs.control_allowed : false,
+    };
+  }
+
+  function normalizePoint(p) {
+    if (!p) return null;
+    const t = p.t ? (typeof p.t === "number" ? p.t : Math.floor(new Date(p.t).getTime() / 1000))
+      : p.timestamp ? Math.floor(new Date(p.timestamp).getTime() / 1000)
+      : nowSec();
+    const v = p.v != null ? p.v : p.value != null ? p.value : null;
+    return { t, v };
+  }
+
+  /* ============================================================
      真实数据模式：连接后端 API
      ============================================================ */
 
@@ -167,19 +253,23 @@
       const res = await fetch('/api/devices', { signal: AbortSignal.timeout(3000) });
       const data = await res.json();
       if (data.ok && data.devices && data.devices.length > 0) {
-        const dev = data.devices[0];
+        // 只选择 online=true 的设备
+        const onlineDevice = data.devices.find((d) => d.online);
+        if (!onlineDevice) {
+          console.log("[EdgeSim] 后端可达但无在线设备，切换到 mock 模式");
+          pushEvent("info", "system", "后端可达但无在线设备，使用 mock 数据预览", nowSec());
+          return false;
+        }
+        const dev = normalizeDevice(onlineDevice);
         sim.mode = "real";
         sim._realDeviceId = dev.device_id;
+        sim.device = dev;
+        sim.cameraStatus = dev.camera;
         pushEvent("info", "system", `真实设备已连接: ${dev.device_id}`, nowSec());
         console.log("[EdgeSim] 真实设备已连接:", dev.device_id);
 
-        // 加载初始数据
         await loadInitialData(dev.device_id);
-
-        // 订阅 SSE
         connectSSE(dev.device_id);
-
-        // 轮询补充（SSE 可能不推送所有数据）
         startPolling(dev.device_id);
 
         sim.ready = true;
@@ -198,8 +288,9 @@
       const res = await fetch(`/api/devices/${deviceId}`);
       const data = await res.json();
       if (data.ok && data.device) {
-        sim.device = data.device;
-        sim._lastSeen = data.device.last_seen_at ? new Date(data.device.last_seen_at).getTime() / 1000 : nowSec();
+        sim.device = normalizeDevice(data.device);
+        sim.cameraStatus = sim.device.camera;
+        sim._lastSeen = sim.device.last_seen_at ? new Date(sim.device.last_seen_at).getTime() / 1000 : nowSec();
       }
     } catch (e) { /* ignore */ }
 
@@ -212,6 +303,8 @@
           if (sim.thresholds[k]) {
             sim.thresholds[k].warn = data.thresholds[k].warn;
             sim.thresholds[k].danger = data.thresholds[k].danger;
+            sim.thresholds[k].label = data.thresholds[k].label || sim.thresholds[k].label;
+            sim.thresholds[k].unit = data.thresholds[k].unit || sim.thresholds[k].unit;
           }
         });
       }
@@ -222,7 +315,7 @@
       const res = await fetch(`/api/ai/observations/latest?device_id=${deviceId}`);
       const data = await res.json();
       if (data.ok && data.observation) {
-        sim.ai.unshift(data.observation);
+        sim.ai.unshift(normalizeObservation(data.observation));
       }
     } catch (e) { /* ignore */ }
 
@@ -231,7 +324,7 @@
       const res = await fetch(`/api/alerts?device_id=${deviceId}&limit=20`);
       const data = await res.json();
       if (data.ok && data.alerts) {
-        sim.alerts = data.alerts;
+        sim.alerts = data.alerts.map(normalizeAlert).filter(Boolean);
       }
     } catch (e) { /* ignore */ }
 
@@ -282,9 +375,10 @@
 
     // 更新设备状态
     if (tick.device) {
-      sim.device = tick.device;
-      if (tick.device.last_seen_at) {
-        sim._lastSeen = new Date(tick.device.last_seen_at).getTime() / 1000;
+      sim.device = normalizeDevice(tick.device);
+      sim.cameraStatus = sim.device.camera;
+      if (sim.device.last_seen_at) {
+        sim._lastSeen = new Date(sim.device.last_seen_at).getTime() / 1000;
       }
     }
 
@@ -294,7 +388,7 @@
         ts: t,
         level: tick.latest_event.risk_score >= 7 ? "danger" : tick.latest_event.risk_score >= 4 ? "warn" : "info",
         source: tick.latest_event.type || "event",
-        msg: `${tick.latest_event.state} · risk ${tick.latest_event.risk_score}`,
+        msg: `${tick.latest_event.state || ""} · risk ${tick.latest_event.risk_score}`,
         id: tick.latest_event.id || Math.random().toString(36).slice(2),
       };
       if (!sim.events.length || sim.events[0].msg !== ev.msg) {
@@ -312,8 +406,8 @@
 
     // 更新 AI 观察
     if (tick.latest_ai_observation) {
-      const obs = tick.latest_ai_observation;
-      if (!sim.ai.length || sim.ai[0].id !== obs.id) {
+      const obs = normalizeObservation(tick.latest_ai_observation);
+      if (obs && (!sim.ai.length || sim.ai[0].id !== obs.id)) {
         sim.ai.unshift(obs);
         if (sim.ai.length > 24) sim.ai.pop();
       }
@@ -321,7 +415,7 @@
 
     // 更新告警
     if (tick.alerts && tick.alerts.length) {
-      tick.alerts.forEach((a) => {
+      tick.alerts.map(normalizeAlert).filter(Boolean).forEach((a) => {
         if (!sim.alerts.find((x) => x.id === a.id)) {
           sim.alerts.unshift(a);
         }
@@ -333,32 +427,49 @@
   }
 
   function startPolling(deviceId) {
-    // 每 10 秒轮询遥测数据
+    // 每 10 秒轮询遥测和设备状态
     sim._pollTimer = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/telemetry/series?device_id=${deviceId}&metric=risk_score&seconds=600`);
-        const data = await res.json();
-        if (data.ok && data.points) {
-          data.points.forEach((p) => push("risk", p.t || Math.floor(new Date(p.timestamp).getTime() / 1000), p.v || p.value));
-        }
-      } catch (e) { /* ignore */ }
+      const t = nowSec();
+
+      // 轮询多个遥测指标
+      const metrics = ["risk_score", "cpu_temp_c", "mpu6500.vibration_score"];
+      for (const metric of metrics) {
+        try {
+          const res = await fetch(`/api/telemetry/series?device_id=${deviceId}&metric=${metric}&seconds=600`);
+          const data = await res.json();
+          if (data.ok && data.points) {
+            const key = metric === "risk_score" ? "risk" : metric === "cpu_temp_c" ? "cpu_temp" : metric === "mpu6500.vibration_score" ? "vib" : metric;
+            data.points.map(normalizePoint).filter(Boolean).forEach((p) => push(key, p.t, p.v));
+          }
+        } catch (e) { /* ignore */ }
+      }
 
       // 轮询设备状态
       try {
         const res = await fetch(`/api/devices/${deviceId}`);
         const data = await res.json();
         if (data.ok && data.device) {
-          sim.device = data.device;
-          if (data.device.health) {
-            const h = data.device.health;
-            const t = nowSec();
-            if (h.cpu_temp_c != null) push("cpu_temp", t, h.cpu_temp_c);
-            if (h.mem_used_mb != null) push("mem_used", t, h.mem_used_mb);
-            if (h.cpu_load_1m != null) push("load", t, h.cpu_load_1m);
-            if (h.disk_used_pct != null) push("disk", t, h.disk_used_pct);
-          }
+          sim.device = normalizeDevice(data.device);
+          sim.cameraStatus = sim.device.camera;
+          const h = sim.device.health;
+          if (h.cpu_temp_c != null) push("cpu_temp", t, h.cpu_temp_c);
+          if (h.mem_used_mb != null) push("mem_used", t, h.mem_used_mb);
+          if (h.cpu_load_1m != null) push("load", t, h.cpu_load_1m);
+          if (h.disk_used_pct != null) push("disk", t, h.disk_used_pct);
         }
       } catch (e) { /* ignore */ }
+
+      // 检查视频流状态
+      try {
+        const res = await fetch(`/api/video/snapshot.jpg?device_id=${deviceId}`, { method: "HEAD", signal: AbortSignal.timeout(3000) });
+        sim.videoOnline = res.ok;
+        sim.videoError = res.ok ? null : `HTTP ${res.status}`;
+      } catch (e) {
+        sim.videoOnline = false;
+        sim.videoError = e.message;
+      }
+
+      emit();
     }, 10000);
   }
 
@@ -595,51 +706,6 @@
     return b.slice(i);
   };
   sim.latest = latest;
-  sim.setScenario = function (s) {
-    if (s === sim.scenario) return;
-    const prev = sim.scenario;
-    sim.scenario = s;
-    const t = nowSec();
-    sim._degradedCount = 0;
-    if (s === "alarm") { sim._alarmEntered = sim._tick; pushEvent("danger", "system", "状态切换 NORMAL → ALARM：火焰/烟雾传感器触发", t); }
-    if (s === "normal" && prev !== "normal") pushEvent("info", "system", "状态恢复 → NORMAL，传感器信号清除", t);
-    if (s === "degraded") pushEvent("warn", "system", "AI 服务异常，进入降级监控模式", t);
-    if (s === "offline") { pushAlert("danger", "device", "设备心跳丢失，edge-opi5-001 离线", t); }
-    if (prev === "offline" && s !== "offline") pushEvent("info", "device", "设备心跳恢复，重新上线", t);
-    sim.device = makeDevice(t, s);
-    emit();
-  };
-  sim.updateNotifSettings = function (patch) {
-    Object.assign(sim.notif.settings, patch);
-    const s = sim.notif.settings;
-    s.configured = !!(s.alert_email_to && s.smtp_host && s.smtp_port && s.smtp_user);
-    pushEvent("info", "notify", "通知设置已更新 (PUT /api/notification/settings)", nowSec());
-    emit();
-  };
-  sim.sendTestEmail = function (cb) {
-    // 模拟 POST /api/notification/test-email：延迟 + 成功/失败
-    const s = sim.notif.settings;
-    setTimeout(() => {
-      const fail = !s.configured || Math.random() < 0.18;
-      const t = nowSec();
-      const entry = {
-        id: "ntf_" + (++sim._notifSeq), ts: t, alert_id: "—", channel: "email",
-        recipient: s.alert_email_to || "(未配置)", subject: "[EdgeSafety] 测试邮件 · 配置验证",
-        status: fail ? "failed" : "sent",
-        error: fail ? (s.configured ? "SMTPAuthenticationError: 535 invalid credentials" : "配置不完整：缺少必填字段") : null,
-      };
-      sim.notif.logs.unshift(entry);
-      sim.notif.last_result = { status: entry.status, ts: t, error: entry.error, test: true };
-      pushEvent(fail ? "warn" : "info", "notify", fail ? "测试邮件发送失败" : "测试邮件发送成功 → " + s.alert_email_to, t);
-      emit();
-      cb && cb(entry);
-    }, 1400 + Math.random() * 900);
-  };
-  sim.setSpeed = function (x) {
-    sim.speed = x;
-    clearInterval(sim._timer);
-    sim._timer = setInterval(tick, 1000 / x);
-  };
 
   /* ---------------- seed mock history ---------------- */
   function seedHistory() {

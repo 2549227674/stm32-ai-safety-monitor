@@ -70,3 +70,4 @@ firmware/stm32/SafetyMonitor/MDK-ARM/Listings/
 *~
 .vscode/
 .idea/
+server/backend/notification_config.json
