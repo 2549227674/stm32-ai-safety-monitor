@@ -52,8 +52,8 @@ Orange Pi 5 (RK3588S)
 
 | 逻辑信号 | OPi5 物理脚 | GPIO 号 | 方向 | 备注 |
 |---|---|---|---|---|
-| I2C5 SDA | pin 3 | 47 | I2C | OLED 0x3C + MPU6050 0x68 |
-| I2C5 SCL | pin 5 | 46 | I2C | OLED 0x3C + MPU6050 0x68 |
+| I2C1 SDA | pin 16 | 59 | I2C | OLED 0x3C + MPU6050 0x68 |
+| I2C1 SCL | pin 18 | 58 | I2C | OLED 0x3C + MPU6050 0x68 |
 | Pan servo | pin 7 | 54 (PWM15) | PWM | pwmchip4 |
 | Water MOS | pin 11 | 138 | output | active HIGH |
 | PIR | pin 13 | 139 | input | active HIGH |
@@ -65,6 +65,10 @@ Orange Pi 5 (RK3588S)
 | Buzzer | pin 26 | 35 | output | active LOW |
 
 PCA9685 不可用（模块问题），所有执行器改用 GPIO/PWM 直控。
+
+> **I2C 总线切换 (2026-06-11)：** I2C5 (pin 3/5) 无法检测到外部 I2C 设备，
+> 原因未完全定位（overlay/pinmux 正确但总线无响应）。OLED + MPU6050 已切换到
+> I2C1 (pin 16/18)，实测 0x3C + 0x68 均正常响应。Pin 3/5 空闲。
 
 ## 4. 后端 API 契约
 

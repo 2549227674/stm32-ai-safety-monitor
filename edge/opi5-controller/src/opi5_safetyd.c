@@ -39,7 +39,7 @@
 #define DEFAULT_GPIO_RGB_B 52           /* pin 24, active HIGH, 已验证 */
 #define DEFAULT_GPIO_RGB_B_ACTIVE_HIGH 1
 #define DEFAULT_RGB_BACKEND "gpio"      /* PCA9685 不可用，GPIO 直控 */
-#define DEFAULT_PCA9685_BUS "/dev/i2c-5"
+#define DEFAULT_PCA9685_BUS "/dev/i2c-1"
 #define DEFAULT_PCA9685_ADDR 0x40
 #define DEFAULT_PCA9685_RGB_R_CH 2
 #define DEFAULT_PCA9685_RGB_G_CH 3
@@ -61,7 +61,7 @@
 #define DEFAULT_INTERVAL_SEC 2
 #define DEFAULT_MODE "once"
 #define DEFAULT_OLED_ENABLE 0
-#define DEFAULT_OLED_BUS "/dev/i2c-5"    /* I2C5 pin 3/5, 已验证 */
+#define DEFAULT_OLED_BUS "/dev/i2c-1"    /* I2C1 pin 16/18, 已验证 */
 #define DEFAULT_OLED_ADDR 0x3C
 #define DEFAULT_RELAY_ENABLE 0
 #define DEFAULT_PCA9685_RELAY_CH 5

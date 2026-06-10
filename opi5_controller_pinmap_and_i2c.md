@@ -6,8 +6,8 @@
 
 | 逻辑信号 | OPi5 物理脚 | GPIO 号 | 方向 | 备注 |
 |---|---|---|---|---|
-| I2C5 SDA | pin 3 | 47 | I2C | OLED 0x3C + MPU6050 0x68 |
-| I2C5 SCL | pin 5 | 46 | I2C | OLED 0x3C + MPU6050 0x68 |
+| I2C1 SDA | pin 16 | 59 | I2C | OLED 0x3C + MPU6050 0x68 |
+| I2C1 SCL | pin 18 | 58 | I2C | OLED 0x3C + MPU6050 0x68 |
 | Pan 舵机 | pin 7 | 54 (PWM15) | PWM | pwmchip4, 80-90 度有效范围 |
 | PIR | pin 13 | 139 | input | active HIGH，已验证 |
 | 火焰 flame | pin 15 | 28 | input | active LOW，已验证 |
@@ -25,14 +25,17 @@
 overlays=i2c5-m3 i2c1-m4 pwm15-m2 pwm1-m1
 ```
 
+> i2c5-m3 overlay 仍加载，但 I2C5 (pin 3/5) 无法检测到外部设备。
+> OLED + MPU6050 已切换到 I2C1 (pin 16/18)。
+
 ## 空闲引脚
 
 | Pin | GPIO | 备注 |
 |---|---|---|
+| 3 | 47 | 空闲（I2C5 总线不可用） |
+| 5 | 46 | 空闲（I2C5 总线不可用） |
 | 8 | 131 | RXD.0，可复用为 GPIO |
 | 10 | 132 | TXD.0，可复用为 GPIO |
-| 16 | 59 | I2C1 SDA（已启用但未使用） |
-| 18 | 58 | I2C1 SCL（已启用但未使用） |
 
 ## 执行器控制方式
 
