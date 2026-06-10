@@ -13,8 +13,8 @@ class VideoCapture:
         self.device = os.environ.get("CAMERA_DEVICE", "/dev/video0")
         self.width = int(os.environ.get("VIDEO_WIDTH", "1280"))
         self.height = int(os.environ.get("VIDEO_HEIGHT", "720"))
-        self.fps = int(os.environ.get("VIDEO_FPS", "12"))
-        self.quality = int(os.environ.get("VIDEO_JPEG_QUALITY", "82"))
+        self.fps = int(os.environ.get("VIDEO_FPS", "10"))
+        self.quality = int(os.environ.get("VIDEO_JPEG_QUALITY", "70"))
         self._frame = None
         self._lock = threading.Lock()
         self._available = False
