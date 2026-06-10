@@ -276,8 +276,11 @@ def create_app():
         import requests as req
         try:
             resp = req.get(f"{agent_url}/api/video/stream", stream=True, timeout=10)
+            def generate():
+                for chunk in resp.iter_content(chunk_size=65536):
+                    yield chunk
             return app.response_class(
-                resp.iter_content(chunk_size=4096),
+                generate(),
                 content_type=resp.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame"),
             )
         except Exception as e:
