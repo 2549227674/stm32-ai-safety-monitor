@@ -136,7 +136,10 @@ function VideoSurface({ sim }) {
   const cameraOk = isReal ? (sim.videoOnline && (cameraStatus === "online" || cameraStatus === "mock")) : deviceOnline;
   const isMockCam = cameraStatus === "mock" || videoMode === "mock";
   const isRealCam = cameraStatus === "online" && videoMode === "real";
-  const videoSrc = isReal && deviceOnline && cameraOk ? `/api/video/stream?device_id=${sim._realDeviceId || "edge-opi5-001"}` : null;
+  const agentUrl = isReal && dev && dev.agent_url;
+  const videoSrc = isReal && deviceOnline && cameraOk
+    ? (agentUrl ? `${agentUrl}/api/video/stream?device_id=${sim._realDeviceId || "edge-opi5-001"}` : `/api/video/stream?device_id=${sim._realDeviceId || "edge-opi5-001"}`)
+    : null;
 
   // Clear imgError when device_id or videoSrc changes
   React.useEffect(() => {
