@@ -206,8 +206,9 @@ def create_app():
         seconds = int(request.args.get("seconds", 600))
         if not device_id or not metric:
             return jsonify({"ok": False, "error": "device_id and metric required"}), 400
-        points = get_telemetry_series(device_id, metric, seconds)
-        threshold = _get_threshold_for_metric(device_id, metric)
+        canonical = _resolve_metric_alias(metric)
+        points = get_telemetry_series(device_id, canonical, seconds)
+        threshold = _get_threshold_for_metric(device_id, canonical)
         return jsonify({"ok": True, "device_id": device_id, "metric": metric, "points": points, "threshold": threshold})
 
     # --- AI observations ---
@@ -289,13 +290,18 @@ def create_app():
             return jsonify({"ok": False, "error": "device_id required"}), 400
         agent_url = _get_device_agent_url(device_id)
         if not agent_url:
-            return jsonify({"ok": False, "error": "device agent not available"}), 503
+            return jsonify({"ok": False, "error": "device agent not available", "camera_status": "offline"}), 503
         import requests as req
         try:
             resp = req.get(f"{agent_url}/api/video/snapshot.jpg", timeout=10)
+            if resp.status_code == 503:
+                return jsonify({"ok": False, "error": "no frame available from device", "camera_status": "offline"}), 503
+            ct = resp.headers.get("Content-Type", "")
+            if "image/jpeg" not in ct:
+                return jsonify({"ok": False, "error": "device agent returned non-JPEG response", "camera_status": "unknown"}), 503
             return app.response_class(resp.content, content_type="image/jpeg")
         except Exception as e:
-            return jsonify({"ok": False, "error": str(e)}), 503
+            return jsonify({"ok": False, "error": str(e), "camera_status": "offline"}), 503
 
     # --- SSE stream ---
 
@@ -321,8 +327,11 @@ def create_app():
         payload = request.get_json(silent=True)
         if not payload or not isinstance(payload, dict):
             return jsonify({"ok": False, "error": "JSON body required"}), 400
-        notifier.update_settings(payload)
-        return jsonify({"ok": True, "settings": notifier.get_settings()})
+        saved = notifier.update_settings(payload)
+        result = {"ok": True, "settings": notifier.get_settings()}
+        if not saved:
+            result["warning"] = "settings updated in memory but failed to persist to disk"
+        return jsonify(result)
 
     @app.post("/api/notification/test-email")
     def send_test_email():
@@ -355,21 +364,50 @@ def _get_device_agent_url(device_id):
     if url:
         return url.rstrip("/")
     d = get_device_status(device_id)
-    if d:
-        status = d.get("status", {})
-        hb = status.get("heartbeat", {})
-        if hb.get("agent_url"):
-            return hb["agent_url"].rstrip("/")
+    if not d:
+        return None
+    status = d.get("status", {})
+    # status IS the heartbeat payload (raw heartbeat JSON stored directly)
+    hb = status.get("heartbeat", status) or {}
+    # 1. direct agent_url in heartbeat
+    if hb.get("agent_url"):
+        return hb["agent_url"].rstrip("/")
+    # 2. top-level status fields (heartbeat is the raw payload)
+    if status.get("agent_url"):
+        return status["agent_url"].rstrip("/")
+    # 3. infer from ip + agent_port
+    ip = hb.get("ip") or status.get("ip")
+    if ip and ip != "unknown":
+        port = hb.get("agent_port") or status.get("agent_port") or 8090
+        return f"http://{ip}:{port}"
     return None
 
 
 def _default_thresholds():
     return {
         "risk_score": {"warn": 4, "danger": 7, "unit": "score"},
-        "cpu_temp_c": {"warn": 75, "danger": 85, "unit": "°C"},
+        "device.cpu_temp_c": {"warn": 75, "danger": 85, "unit": "°C"},
         "mpu6500.vibration_score": {"warn": 4, "danger": 7, "unit": "score"},
-        "smoke_score": {"warn": 3, "danger": 6, "unit": "score"},
+        "sensor_scores.smoke": {"warn": 3, "danger": 6, "unit": "score"},
     }
+
+
+_METRIC_ALIASES = {
+    "cpu_temp_c": "device.cpu_temp_c",
+    "mem_used_mb": "device.mem_used_mb",
+    "smoke_score": "sensor_scores.smoke",
+    "smoke": "sensor_scores.smoke",
+    "flame_score": "sensor_scores.flame",
+    "mpu6500_vibration": "mpu6500.vibration_score",
+    "vibration_score": "mpu6500.vibration_score",
+    "pir": "safety.pir",
+    "flame": "safety.flame",
+    "mq2": "safety.mq2",
+}
+
+
+def _resolve_metric_alias(metric):
+    return _METRIC_ALIASES.get(metric, metric)
 
 
 def _get_threshold_for_metric(device_id, metric):
@@ -377,7 +415,13 @@ def _get_threshold_for_metric(device_id, metric):
     if metric in t:
         return t[metric]
     defaults = _default_thresholds()
-    return defaults.get(metric)
+    if metric in defaults:
+        return defaults[metric]
+    # Try alias resolution for threshold lookup
+    canonical = _resolve_metric_alias(metric)
+    if canonical in t:
+        return t[canonical]
+    return defaults.get(canonical)
 
 
 def _check_telemetry_alerts(device_id, summary):

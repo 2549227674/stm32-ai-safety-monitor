@@ -8,7 +8,8 @@ from datetime import datetime
 
 class VideoCapture:
     def __init__(self):
-        self.mock = os.environ.get("VIDEO_MOCK", "0") == "1"
+        self._mock_env = os.environ.get("VIDEO_MOCK", "0") == "1"
+        self.mock = self._mock_env
         self.device = os.environ.get("CAMERA_DEVICE", "/dev/video0")
         self.width = int(os.environ.get("VIDEO_WIDTH", "1280"))
         self.height = int(os.environ.get("VIDEO_HEIGHT", "720"))
@@ -17,6 +18,7 @@ class VideoCapture:
         self._frame = None
         self._lock = threading.Lock()
         self._available = False
+        self._real_opened = False
         self._cap = None
 
         if not self.mock:
@@ -34,6 +36,7 @@ class VideoCapture:
                 self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
                 self._cap.set(cv2.CAP_PROP_FPS, self.fps)
                 self._available = True
+                self._real_opened = True
                 threading.Thread(target=self._capture_loop, daemon=True).start()
                 print(f"[video] opened {self.device} {self.width}x{self.height}@{self.fps}fps")
             else:
@@ -61,6 +64,7 @@ class VideoCapture:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             draw.text((20, 20), f"MOCK VIDEO - {now}", fill=(0, 255, 0))
             draw.text((20, 50), f"Device: {os.environ.get('DEVICE_ID', 'unknown')}", fill=(200, 200, 200))
+            draw.text((20, 80), "SIMULATED - NOT REAL CAMERA", fill=(255, 80, 80))
             import io
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=self.quality)
@@ -85,3 +89,39 @@ class VideoCapture:
 
     def is_available(self):
         return self._available or self.mock
+
+    def get_status(self):
+        """Return video capture status dict."""
+        if self._real_opened and self._available:
+            return {
+                "status": "online",
+                "mode": "real",
+                "available": True,
+                "device": self.device,
+                "width": self.width,
+                "height": self.height,
+                "fps": self.fps,
+                "mock": False,
+            }
+        if self._mock_env:
+            return {
+                "status": "mock",
+                "mode": "mock",
+                "available": True,
+                "device": None,
+                "width": self.width,
+                "height": self.height,
+                "fps": self.fps,
+                "mock": True,
+            }
+        # Real camera was tried but failed, fell back to mock
+        return {
+            "status": "mock",
+            "mode": "mock",
+            "available": True,
+            "device": self.device,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "mock": True,
+        }

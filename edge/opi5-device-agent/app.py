@@ -59,16 +59,25 @@ def heartbeat_loop():
             except Exception:
                 ai_health = {"ok": False, "error": "unreachable"}
 
+            cam = video.get_status()
+            agent_ip = _get_ip()
+
             payload = {
                 "device_id": DEVICE_ID,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "agent_version": "0.2.0",
-                "ip": _get_ip(),
+                "ip": agent_ip,
+                "agent_url": f"http://{agent_ip}:{AGENT_PORT}",
+                "agent_port": AGENT_PORT,
                 "uptime_s": _get_uptime(),
                 "online": True,
                 "services": services,
                 "health": health,
                 "ai": ai_health,
+                "camera": cam,
+                "camera_status": cam["status"],
+                "video_mode": cam["mode"],
+                "video_available": cam["available"],
             }
             poster.post("/api/devices/heartbeat", payload)
         except Exception as e:
@@ -81,7 +90,8 @@ def telemetry_loop():
     while True:
         try:
             m = sensors.sample()
-            m.update(collect_metrics())
+            device_metrics = collect_metrics()
+            m["device"] = device_metrics
             with metrics_lock:
                 latest_metrics = m
             batcher.add_sample(m)
@@ -113,12 +123,16 @@ def health():
 def status():
     with metrics_lock:
         m = dict(latest_metrics)
+    cam = video.get_status()
     return jsonify({
         "ok": True,
         "device_id": DEVICE_ID,
         "ip": _get_ip(),
         "metrics": m,
         "video_available": video.is_available(),
+        "camera": cam,
+        "camera_status": cam["status"],
+        "video_mode": cam["mode"],
         "ai_url": AI_URL,
         "backend_url": BACKEND_URL,
     })

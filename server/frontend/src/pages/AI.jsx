@@ -6,12 +6,25 @@ export default function PageAI({ sim }) {
   const [selId, setSelId] = React.useState(null);
   const list = sim.ai;
   const sel = list.find((o) => o.id === selId) || list[0];
-  const deg = sim.scenario === "degraded";
-  const off = sim.scenario === "offline";
+  const isReal = sim.mode === "real";
+
+  // Real mode: derive state from device data, not sim.scenario
+  const dev = sim.device || {};
+  const aiInfo = dev.ai || {};
+  const off = isReal ? !dev.online : sim.scenario === "offline";
+  const deg = isReal ? (!aiInfo.ok && !aiInfo.model_ready) : sim.scenario === "degraded";
+  const aiSvcRunning = isReal ? (aiInfo.ok || aiInfo.mode === "qwen3vl") : sim.scenario !== "offline" && sim.scenario !== "degraded";
+
   const okObs = list.filter((o) => o.ok && o.status === "ok");
   const avgTotal = okObs.length ? okObs.reduce((a, o) => a + o.run_metrics.total_ms, 0) / okObs.length : null;
   const avgTps = okObs.length ? okObs.reduce((a, o) => a + (o.run_metrics.tokens_per_s || 0), 0) / okObs.length : null;
   const failRate = list.length ? list.filter((o) => !o.ok).length / list.length : 0;
+
+  // Real mode: check if latest observation is stale (>90s)
+  const now = Math.floor(Date.now() / 1000);
+  const latestObs = list.find((o) => o.ok);
+  const latestTs = latestObs ? (typeof latestObs.timestamp === "number" ? latestObs.timestamp : new Date(latestObs.timestamp).getTime() / 1000) : 0;
+  const stale = isReal && latestObs && (now - latestTs) > 90;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} data-screen-label="AI 推理">
@@ -29,12 +42,24 @@ export default function PageAI({ sim }) {
           <span style={{ flex: 1 }}><b>降级模式</b> — systemd 单元 <span className="mono">opi5-ai-qwen3vl.service</span> 状态 failed；device-agent 自动回退 mock 检测器，观察结果带 <span className="mono">[mock]</span> 标记，不可用于真实研判。</span>
         </div>
       )}
+      {isReal && stale && (
+        <div className="banner degraded">
+          <span style={{ fontSize: 16 }}>◐</span>
+          <span style={{ flex: 1 }}><b>AI 观察已过期</b> — 最近一次观察于 {Math.floor((now - latestTs) / 60)} 分钟前，等待设备上传新数据。</span>
+        </div>
+      )}
+      {isReal && off && (
+        <div className="banner off">
+          <span style={{ fontSize: 16 }}>◌</span>
+          <span style={{ flex: 1 }}><b>设备离线</b> — AI 服务不可达，等待设备心跳恢复。</span>
+        </div>
+      )}
       <div className="grid" style={{ gridTemplateColumns: "minmax(0, 5fr) minmax(0, 7fr)" }}>
         <Card title="观察历史" sub="window 30s · 演示加速至 18s" flush>
           <div style={{ maxHeight: 520, overflowY: "auto" }}>
             {list.length ? list.map((o) => (
               <ObservationRow key={o.id} obs={o} active={sel && sel.id === o.id} onClick={() => setSelId(o.id)} />
-            )) : <Empty>暂无观察记录</Empty>}
+            )) : <Empty>{isReal ? "暂无 AI 观察 / 等待设备上传" : "暂无观察记录"}</Empty>}
           </div>
         </Card>
         <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
@@ -69,7 +94,7 @@ export default function PageAI({ sim }) {
                 </div>
               )}
             </Card>
-          ) : <Card title="观察详情"><Empty>从左侧选择一次观察</Empty></Card>}
+          ) : <Card title="观察详情"><Empty>{isReal ? "暂无 AI 观察 / 等待设备上传" : "从左侧选择一次观察"}</Empty></Card>}
         </div>
       </div>
     </div>

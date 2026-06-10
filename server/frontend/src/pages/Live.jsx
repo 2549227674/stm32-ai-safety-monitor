@@ -5,14 +5,25 @@ import { TimeChart, BinaryStrip } from '../components/Charts'
 export default function PageLive({ sim }) {
   const T = sim.thresholds;
   const risk = sim.latest("risk");
-  const offline = sim.scenario === "offline";
+  const isReal = sim.mode === "real";
+  const dev = sim.device || {};
+  const offline = isReal ? !dev.online : sim.scenario === "offline";
   const ai = sim.ai.find((o) => o.ok);
+
+  // Real mode: derive video status from camera fields
+  const cameraStatus = isReal ? sim.cameraStatus : (offline ? "offline" : "mock");
+  const videoOnline = isReal ? sim.videoOnline : !offline;
+  const isMockCam = cameraStatus === "mock";
+  const isRealCam = cameraStatus === "online";
+
+  // Live pill: real mode checks device + video, mock mode checks scenario
+  const liveActive = isReal ? (!offline && videoOnline && (isRealCam || isMockCam)) : !offline;
 
   return (
     <div className="grid" style={{ gridTemplateColumns: "minmax(0, 8fr) minmax(0, 4fr)" }} data-screen-label="实时巡检">
       <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
         <Card title="CAM-01 · 巡检点位 A" sub="MJPEG over HTTP · /api/video/stream" flush
-          right={<Pill level={offline ? "danger" : "ok"} blink={!offline}>{offline ? "断流" : "直播中"}</Pill>}>
+          right={<Pill level={liveActive ? "ok" : "danger"} blink={liveActive}>{liveActive ? (isMockCam ? "模拟中" : "直播中") : "断流"}</Pill>}>
           <div style={{ padding: "0 16px 16px" }}><VideoSurface sim={sim} /></div>
         </Card>
         <Card title="风险分数" sub="设备端 1Hz 计算 · 阈值见「风险阈值」页">
@@ -39,7 +50,6 @@ export default function PageLive({ sim }) {
         </Card>
         <Card title="AI 巡检解读" sub="每 30s 一次">
           {(() => {
-            const isReal = sim.mode === "real";
             const now = Math.floor(Date.now() / 1000);
             const stale = isReal && ai && (now - (typeof ai.timestamp === "number" ? ai.timestamp : new Date(ai.timestamp).getTime() / 1000)) > 90;
             const showAi = ai && !stale;

@@ -168,18 +168,26 @@
   function normalizeDevice(dev) {
     if (!dev) return null;
     const s = dev.status || {};
-    const hb = s.heartbeat || {};
-    const h = s.health || dev.health || {};
-    const svcs = s.services || dev.services || {};
-    const aiInfo = s.ai || dev.ai || {};
+    const hb = s.heartbeat || s || {};
+    const h = hb.health || s.health || dev.health || {};
+    const svcs = hb.services || s.services || dev.services || {};
+    const aiInfo = hb.ai || s.ai || dev.ai || {};
+
+    // Camera fields - could be object or string
+    const rawCam = hb.camera || s.camera || dev.camera;
+    const cam = typeof rawCam === "object" && rawCam !== null ? rawCam : {};
+    const cameraStatus = hb.camera_status || s.camera_status || dev.camera_status || cam.status || (typeof rawCam === "string" ? rawCam : "unknown");
+    const videoMode = hb.video_mode || s.video_mode || dev.video_mode || cam.mode || "unknown";
+    const videoAvail = hb.video_available != null ? hb.video_available : s.video_available != null ? s.video_available : dev.video_available != null ? dev.video_available : cam.available;
+
     return {
-      device_id: dev.device_id,
+      device_id: dev.device_id || hb.device_id,
       online: dev.online != null ? dev.online : (dev.last_seen_at ? (nowSec() - new Date(dev.last_seen_at).getTime() / 1000 < 15) : false),
       last_seen_at: dev.last_seen_at,
-      agent_version: dev.agent_version || hb.agent_version || "—",
-      contract_version: dev.contract_version || hb.contract_version || "—",
-      ip: dev.ip || hb.ip || "—",
-      uptime_s: dev.uptime_s || hb.uptime_s || null,
+      agent_version: hb.agent_version || dev.agent_version || "—",
+      contract_version: hb.contract_version || dev.contract_version || "—",
+      ip: hb.ip || dev.ip || "—",
+      uptime_s: hb.uptime_s || dev.uptime_s || null,
       health: {
         cpu_temp_c: h.cpu_temp_c ?? null,
         mem_used_mb: h.mem_used_mb ?? null,
@@ -198,7 +206,12 @@
         model_ready: aiInfo.model_ready || false,
         error: aiInfo.error || null,
       },
-      camera: dev.camera || s.camera || "unknown",
+      agent_url: hb.agent_url || s.agent_url || dev.agent_url || null,
+      agent_port: hb.agent_port || s.agent_port || dev.agent_port || 8090,
+      camera: cam,
+      camera_status: cameraStatus,
+      video_mode: videoMode,
+      video_available: !!videoAvail,
     };
   }
 
@@ -244,6 +257,22 @@
     return { t, v };
   }
 
+  function normalizeNotificationLog(l) {
+    if (!l) return null;
+    const ts = l.timestamp ? Math.floor(new Date(l.timestamp).getTime() / 1000) : (l.ts || nowSec());
+    return {
+      id: l.id || ("ntf_" + Math.random().toString(36).slice(2)),
+      ts,
+      alert_id: l.alert_id || "—",
+      channel: l.channel || "email",
+      recipient: l.recipient || "",
+      subject: l.subject || "",
+      status: l.status || "unknown",
+      error: l.error || null,
+      raw_json: l.raw_json || null,
+    };
+  }
+
   /* ============================================================
      真实数据模式：连接后端 API
      ============================================================ */
@@ -264,7 +293,8 @@
         sim.mode = "real";
         sim._realDeviceId = dev.device_id;
         sim.device = dev;
-        sim.cameraStatus = dev.camera;
+        sim.cameraStatus = dev.camera_status;
+        sim.videoOnline = dev.video_available || dev.camera_status === "online" || dev.camera_status === "mock";
         pushEvent("info", "system", `真实设备已连接: ${dev.device_id}`, nowSec());
         console.log("[EdgeSim] 真实设备已连接:", dev.device_id);
 
@@ -289,7 +319,8 @@
       const data = await res.json();
       if (data.ok && data.device) {
         sim.device = normalizeDevice(data.device);
-        sim.cameraStatus = sim.device.camera;
+        sim.cameraStatus = sim.device.camera_status;
+        sim.videoOnline = sim.device.video_available || sim.device.camera_status === "online" || sim.device.camera_status === "mock";
         sim._lastSeen = sim.device.last_seen_at ? new Date(sim.device.last_seen_at).getTime() / 1000 : nowSec();
       }
     } catch (e) { /* ignore */ }
@@ -342,7 +373,7 @@
       const res = await fetch('/api/notification/logs?limit=20');
       const data = await res.json();
       if (data.ok && data.logs) {
-        sim.notif.logs = data.logs;
+        sim.notif.logs = data.logs.map(normalizeNotificationLog).filter(Boolean);
       }
     } catch (e) { /* ignore */ }
   }
@@ -376,7 +407,8 @@
     // 更新设备状态
     if (tick.device) {
       sim.device = normalizeDevice(tick.device);
-      sim.cameraStatus = sim.device.camera;
+      sim.cameraStatus = sim.device.camera_status;
+      sim.videoOnline = sim.device.video_available || sim.device.camera_status === "online" || sim.device.camera_status === "mock";
       if (sim.device.last_seen_at) {
         sim._lastSeen = new Date(sim.device.last_seen_at).getTime() / 1000;
       }
@@ -450,7 +482,8 @@
         const data = await res.json();
         if (data.ok && data.device) {
           sim.device = normalizeDevice(data.device);
-          sim.cameraStatus = sim.device.camera;
+          sim.cameraStatus = sim.device.camera_status;
+          sim.videoOnline = sim.device.video_available || sim.device.camera_status === "online" || sim.device.camera_status === "mock";
           const h = sim.device.health;
           if (h.cpu_temp_c != null) push("cpu_temp", t, h.cpu_temp_c);
           if (h.mem_used_mb != null) push("mem_used", t, h.mem_used_mb);
@@ -678,7 +711,12 @@
         : deg
           ? { ok: false, mode: "qwen3vl", model_ready: false, error: "connection refused (:8080)" }
           : { ok: true, mode: "qwen3vl", model_ready: true, contract_version: "1.1", models: [{ name: "qwen3-vl-2b", backend: "rknn-llm", version: "local" }] },
-      camera: off ? "offline" : "online",
+      agent_url: null,
+      agent_port: 8090,
+      camera: { status: off ? "offline" : "mock", mode: off ? "offline" : "mock", available: !off, device: null, width: 1280, height: 720, fps: 12, mock: true },
+      camera_status: off ? "offline" : "mock",
+      video_mode: off ? "offline" : "mock",
+      video_available: !off,
       backend: "ok",
       contract_version: "1.1",
     };

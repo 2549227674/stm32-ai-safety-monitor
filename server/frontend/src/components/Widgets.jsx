@@ -90,7 +90,8 @@ function systemStatus(sim) {
     const dev = sim.device;
     if (!dev || !dev.online) return { level: "off", label: "设备离线", pill: "danger", blink: true };
     const aiOk = dev.ai && dev.ai.ok;
-    const cameraOk = sim.videoOnline && sim.cameraStatus === "online";
+    const cs = sim.cameraStatus;
+    const cameraOk = sim.videoOnline && (cs === "online" || cs === "mock");
     if (!aiOk && !cameraOk) return { level: "degraded", label: "降级运行", pill: "degraded", blink: false };
     if (!cameraOk) return { level: "warn", label: "视频异常", pill: "warn", blink: false };
     const risk = sim.latest("risk");
@@ -130,8 +131,17 @@ function VideoSurface({ sim }) {
   // real 模式状态判断
   const dev = sim.device;
   const deviceOnline = isReal ? (dev && dev.online) : (sim.scenario !== "offline");
-  const cameraOk = isReal ? (sim.videoOnline && sim.cameraStatus === "online") : deviceOnline;
-  const videoSrc = isReal && deviceOnline ? `/api/video/stream?device_id=${sim._realDeviceId || "edge-opi5-001"}` : null;
+  const cameraStatus = isReal ? sim.cameraStatus : (sim.scenario === "offline" ? "offline" : "mock");
+  const videoMode = isReal ? (dev && dev.video_mode) : (sim.scenario === "offline" ? "offline" : "mock");
+  const cameraOk = isReal ? (sim.videoOnline && (cameraStatus === "online" || cameraStatus === "mock")) : deviceOnline;
+  const isMockCam = cameraStatus === "mock" || videoMode === "mock";
+  const isRealCam = cameraStatus === "online" && videoMode === "real";
+  const videoSrc = isReal && deviceOnline && cameraOk ? `/api/video/stream?device_id=${sim._realDeviceId || "edge-opi5-001"}` : null;
+
+  // Clear imgError when device_id or videoSrc changes
+  React.useEffect(() => {
+    setImgError(false);
+  }, [sim._realDeviceId, videoSrc]);
 
   const showNoSignal = !deviceOnline || (isReal && !cameraOk);
   const showMockPlaceholder = !isReal && sim.scenario !== "offline";
@@ -198,6 +208,8 @@ function VideoSurface({ sim }) {
             </span>
             {isReal && <span className="hud-chip">{cameraOk && !imgError ? "MJPEG" : "断流"}</span>}
             {!isReal && <span className="hud-chip">25 FPS · MJPEG 1280×720 · mock</span>}
+            {isReal && isMockCam && <span className="hud-chip" style={{ color: "var(--warn)", fontWeight: 600 }}>MOCK VIDEO</span>}
+            {isReal && isRealCam && <span className="hud-chip" style={{ color: "var(--ok)", fontWeight: 600 }}>REAL CAMERA</span>}
           </div>
           <span className="hud-chip">{clock}</span>
         </div>
@@ -206,8 +218,11 @@ function VideoSurface({ sim }) {
             <span className="dot" style={{ background: riskColor(lvl) }}></span>
             risk {risk == null ? "—" : risk.toFixed(1)}/10
           </span>
-          {isReal && (
+          {isReal && isRealCam && (
             <span className="hud-chip" style={{ fontSize: 9, color: "var(--ok)" }}>REAL</span>
+          )}
+          {isReal && isMockCam && (
+            <span className="hud-chip" style={{ fontSize: 9, color: "var(--warn)" }}>MOCK</span>
           )}
         </div>
       </div>
