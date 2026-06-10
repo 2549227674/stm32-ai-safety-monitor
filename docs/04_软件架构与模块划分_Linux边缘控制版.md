@@ -1,149 +1,123 @@
-# 04 软件架构与模块划分（Linux 边缘控制版）
+# 04 软件架构与模块划分（OPi5 主线版）
 
 ## 4.1 总体软件架构
 
-当前演示主线为 OPi5 一板双进程架构：
+当前演示主线为 OPi5 一板三进程架构：
 
 ```text
-edge/opi5-controller/           edge/opi5-ai/               server/backend/
-  opi5_safetyd                    opi5_ai_service             Flask app.py
-  gpio_input                      /health                     SQLite database.py
-  pwm_servo                       /api/infer/vision           Dashboard JS/HTML
-  gpio_rgb_buzzer_mos             Qwen3-VL / mock             /api/events
-  oled_ssd1306                    control_allowed=false       /api/images
-  safety_fsm
-  event_client
-  spool
+edge/opi5-controller/     edge/opi5-ai/            edge/opi5-device-agent/
+  opi5_safetyd              opi5_ai_service           opi5-device-agent
+  gpio_input                /health                   /health
+  pwm_servo                 /api/infer/vision         /api/status
+  gpio_rgb_buzzer_mos       Qwen3-VL / mock           /api/video/stream
+  oled_ssd1306              control_allowed=false      /api/video/snapshot.jpg
+  safety_fsm                                           heartbeat (5s)
+  event_client                                         telemetry (30s)
+  spool                                                AI observation (30s)
+
+server/backend/            server/frontend/
+  app.py                     Vite build
+  SQLite                     React edge-console
+  Flask API                  Dashboard 多页面
 ```
 
-核心原则：本地安全主控进程 `opi5_safetyd` 是唯一执行器决策点；AI 服务 `opi5_ai_service` 与 Flask 不直接控制硬件。
-
-- `opi5_safetyd`：本地安全闭环，GPIO 传感器 → 状态机 → 执行器，断网/断 AI 仍可运行
-- `opi5_ai_service`：AI 推理，只返回 `risk_hint`，`control_allowed=false`
-- 两个进程独立，互不依赖；AI 离线时安全闭环仍依据本地传感器进入安全态
-
-**执行器后端说明**：OPi5 Task13 验证中 PCA9685 确认为模块问题（4 个均未 ACK），当前主线执行器改用 GPIO/PWM 直控。PCA9685 保留为后续更换模块后的可选后端，不作为当前主线依赖。
-
-> 原计划第二版采用 i.MX6ULL + OPi5 双板架构，因 i.MX6ULL 末期供电/启动异常，当前主线改为 OPi5 一板双进程。历史 i.MX 架构见下文 §4.3。
+核心原则：`opi5_safetyd` 是唯一执行器决策点；`opi5_ai_service` 只返回 `risk_hint`，`control_allowed=false`；`opi5-device-agent` 负责心跳/遥测/视频/AI observation。
 
 ## 4.2 仓库目录结构
 
-见 `CANONICAL_DECISIONS.md` 的统一目录树。新代码放在 `edge/`、`common/`、`scripts/`、`tests/`，旧代码迁移到 `legacy/`。
+见 `CANONICAL_DECISIONS.md` 的统一目录树。当前活跃代码：
 
-## 4.3 历史 i.MX6ULL 控制进程 `imx_safetyd`（已完成验证，不再部署）
+| 目录 | 说明 |
+|---|---|
+| `edge/opi5-controller/` | OPi5 本地安全闭环 |
+| `edge/opi5-ai/` | OPi5 AI 推理服务 |
+| `edge/opi5-device-agent/` | OPi5 设备代理 |
+| `server/backend/` | Flask 后端 |
+| `server/frontend/` | React edge-console |
+| `config/templates/` | systemd/env 模板 |
+| `scripts/` | 构建/部署脚本 |
 
-> 本节为历史 i.MX 阶段的软件架构记录，保留为工程迭代证据。当前主线控制进程已迁移到 `opi5_safetyd`（见 §4.1）。
+## 4.3 历史 i.MX6ULL 控制进程（已完成验证，不再部署）
 
-原计划用 C/C++ 实现底层硬件控制和 V4L2 抓拍，必要时配合 Python 辅助脚本。MVP 可采用单进程多模块架构。
+> 本节为历史 i.MX 阶段的软件架构记录，保留为工程迭代证据。当前主线已迁移到 `opi5_safetyd`。
 
-| 模块 | 职责 | 周期/触发 |
+原 i.MX6ULL 使用 C 版 `imx_safetyd`，通过 V4L2 抓拍 + curl 子进程完成 HTTP 通信。Task07-C 已验证 NORMAL/VERIFY/FAULT 状态机、AI offline fallback、Flask spool/flush。
+
+历史代码位于 `edge/imx6ull-controller/`，不再部署。详见 `docs/archive/2026-imx6ull-stage/`。
+
+## 4.4 OPi5 AI 服务 `opi5_ai_service`
+
+OPi5 AI 服务运行在端口 8080，当前主线为 Qwen3-VL 2B 模型。
+
+- `GET /health` — 服务健康检查
+- `POST /api/infer/vision` — 视觉推理，返回 `risk_hint`/`summary`/`objects`/`vlm_result`
+
+处理流程：接收 JPEG + metadata → 预处理 → Qwen3-VL 推理 → 返回结构化 JSON。
+
+详见 `docs/09_OrangePi5_RKNN本地AI推理与解释方案.md`。
+
+## 4.5 OPi5 设备代理 `opi5-device-agent`
+
+设备代理负责设备与后端之间的数据桥接：
+
+| 功能 | 周期 | 说明 |
 |---|---|---|
-| `gpio_input` | 读取门磁/PIR/火焰/按键 | 20–100ms |
-| `pca9685_servo` | I2C 控制舵机 PWM | 事件触发或巡检周期 |
-| `mos_output` | 控制低压负载 | 状态机输出 |
-| `v4l2_capture` | 抓 JPEG 静帧 | `need_snap` 或巡检角度。Task04 已验证：v4l2-ctl 抓取 /dev/video1 MJPG 640x480 成功（UVC 1.00, 0bdc:8088） |
-| `safety_fsm` | 计算 `state/risk_score` | 50–100ms |
-| `ai_client` | POST 图片到 OPi5 | 事件触发，超时降级 |
-| `event_client` | POST 事件到 Flask | 事件触发或定时 |
-| `local_spool` | 断网缓存 | 网络失败时 |
+| 心跳 | 5s | `POST /api/devices/heartbeat` |
+| 遥测批量上报 | 30s | `POST /api/telemetry/batch` |
+| AI observation | 30s | 调用 AI 服务 → `POST /api/ai/observations` |
+| 视频流 | 持续 | `/api/video/stream` MJPEG |
+| 快照 | 按需 | `/api/video/snapshot.jpg` |
 
-> **[ASSUMPTION]** 传感器与安全状态机属于人机尺度场景，Linux 用户态 50–100ms 周期可满足课程 MVP。 —— 若不成立，对应 [CLAUDE_CODE_TODO] 处理。
+摄像头不可用时自动回退 mock 模式。
 
-当前实现（Task07-C）：
+## 4.6 Flask 后端
 
-- `imx_safetyd.c` 负责 GPIO、状态机、事件组装、降级、spool 和 status JSON。
-- 摄像头抓拍暂通过 `v4l2-ctl` 子进程完成。
-- HTTP 通信暂通过 `curl` 子进程完成。
+Flask 后端提供完整 API：
 
-后续增强（Task07-D，可选，不阻塞 MVP）：
+| API 组 | 端点 | 说明 |
+|---|---|---|
+| 设备管理 | `/api/devices/*` | 心跳、设备列表 |
+| 遥测 | `/api/telemetry/*` | 批量上报、时序查询 |
+| AI 观察 | `/api/ai/observations/*` | observation 上报与查询 |
+| 事件 | `/api/events` | 兼容旧事件接口 |
+| 阈值 | `/api/thresholds` | 阈值配置 |
+| 告警 | `/api/alerts` | 告警列表 |
+| 视频代理 | `/api/video/*` | 转发 device-agent 视频 |
+| 通知 | `/api/notification/*` | 配置、测试、日志 |
+| SSE | `/api/stream/events` | 实时事件流 |
 
-- Task07-D1：将 HTTP 通信替换为原生 libcurl 模块。
-- Task07-D2：将摄像头抓拍替换为原生 V4L2 模块。
-- Task07-D3：将单文件 C 主控拆分为 gpio/camera/http/event/spool/fsm 等模块。
+## 4.7 React edge-console
 
-该增强不改变 AI 不控制执行器的安全边界。
+React 前端提供 Dashboard 多页面可视化，展示设备状态、遥测时序、AI observation、视频流、通知设置等。
 
+## 4.8 编译与部署
 
-> **[CLAUDE_CODE_TODO | MEASURE]** 实测 i.MX6ULL 控制循环抖动和端到端延迟
-> - 为何 GPT 给不了：沙箱无法在目标板运行控制进程。
-> - 期望产物/操作：在 Task07 中记录采样、抓拍、AI 请求、上报的时间戳，计算 min/avg/max。
-> - 回填位置：docs/04 第 4.3；docs/11；tests/integration
-> - 验收：测试记录包含至少 20 次循环/事件延迟统计。
-
-
-## 4.4 Orange Pi 5 AI 服务 `opi5_ai_service`
-
-建议先实现 FastAPI 或 Flask 风格服务；为减少依赖，MVP 可直接使用 Flask。服务接口：
-
-- `GET /health`
-- `POST /api/infer/vision`
-
-处理流程：接收 multipart JPEG 和 metadata，进行预处理，调用 mock/RKNN 推理，返回 `objects/faces/risk_hint/summary/action_hint/control_allowed=false`。
-
-## 4.5 Flask Dashboard
-
-真实仓库已存在 Flask 后端，并具备：
-
-- `GET /`
-- `GET /health`
-- `POST /api/events`
-- `GET /api/events`
-- `GET /api/status/latest`
-- `POST /api/images`
-- `GET /uploads/<filename>`
-
-不重写后端框架，只做兼容扩展：新增或兼容 `vision_json`、`ai_result_json`、`image_url`、`latency_ms`。若不改 schema，也可优先把新增字段保存进现有 `raw_json` 并在 API 返回中透出。
-
-Task06 已按最小兼容方案完成：不修改 SQLite schema，继续由 `events.raw_json` 保存完整 payload；`database.py` 在读取时透出 `contract_version/vision/ai_result/image_url/latency_ms`，旧事件缺字段时返回 `null`。Dashboard 新增 AI/视觉展示区，展示 `risk_hint`、summary、objects、faces、image URL/图片预览、latency、pan/tilt 与 `control_allowed=false`，且不把 AI/Flask 结果解释为执行器控制命令。证据见 `tests/integration/2026-06-07_backend_contract_extension.md`。
-
-## 4.6 `common/contracts`
-
-`common/contracts/README.md` 只作为开发入口，权威字段表在 `docs/07_端边HTTP_JSON_Contract.md`。
-
-## 4.7 编译与部署
-
-### OPi5 当前主控：原生 gcc 编译
-
-OPi5 `opi5_safetyd` 使用原生 gcc 编译，无需交叉编译工具链：
+### OPi5 原生编译
 
 ```bash
 scripts/build_opi5_controller.sh
 scripts/deploy_opi5.sh
 ```
 
-### 历史 i.MX 阶段：WSL 交叉编译（已完成验证，不再部署）
+## 4.9 systemd 服务
 
-Task02 已验证 WSL 交叉编译与 i.MX6ULL 板端运行：本 SDK 无 `environment-setup-*`，通过
-`config/inventory.yaml` 的 `imx6ull.cc` 指向 `arm-buildroot-linux-gnueabihf-gcc`；`hello_imx6ull`
-已在板端输出 `hello from imx6ull target`。证据见 `tests/imx6ull/2026-06-06_toolchain_ssh.md`。
+OPi5 上三个独立 systemd service：
 
+- `opi5-safetyd.service` — 本地安全闭环
+- `opi5-ai-qwen3vl.service` — AI 推理服务
+- `opi5-device-agent.service` — 设备代理
 
-## 4.8 systemd 服务
+三个 service 互不依赖；任一停止不影响其他服务运行。
 
-### OPi5 当前主控：两进程独立 systemd 管理
-
-OPi5 上 `opi5_safetyd` 和 `opi5_ai_service` 各自独立 systemd service：
-
-- `opi5-safetyd.service`：本地安全闭环进程
-- `opi5-ai-qwen3vl.service`：AI 推理服务（systemd enabled，默认 Qwen3-VL 真实 AI，mock 保留为手动回退）
-
-两个 service 互不依赖；`opi5_ai_service` 停止时 `opi5_safetyd` 仍能依据本地传感器运行。
-
-### 历史 i.MX 阶段：systemd / init.d（已完成验证，不再部署）
-
-历史 i.MX 阶段使用 BusyBox/SysV `init.d/S99imx-safetyd` 管理进程，支持 start/stop/restart/status。
-systemd 模板已入库但板端无 systemctl，未在板端启用。证据见 `tests/integration/2026-06-07_imx_safetyd_initd.md`。
-
-## 4.9 日志与配置
+## 4.10 日志与配置
 
 | 类型 | 路径建议 | 入库 |
 |---|---|---|
-| 示例配置 | `edge/imx6ull-controller/config/*.example.yaml` | 是 |
-| 本地真实配置 | `/etc/edge-ai-safety-monitor/*.yaml` 或 `config/local*.yaml` | 否 |
-| systemd unit | `edge/imx6ull-controller/systemd/*.service` | 是 |
-| 日志 | `logs/` 或 journald | 否 |
-| 缓存图片 | `spool/`、`captures/` | 否 |
+| 示例配置 | `config/templates/*.env.example` | 是 |
+| 本地真实配置 | `/etc/edge-ai-safety-monitor/*.env` | 否 |
+| systemd unit | `config/templates/*.service` | 是 |
+| 日志 | journald | 否 |
 
-## 4.10 不入库内容
+## 4.11 不入库内容
 
 模型权重、数据集、真实配置、SSH 私钥、数据库、图片、视频、日志不入库。见根目录 `.gitignore`。
