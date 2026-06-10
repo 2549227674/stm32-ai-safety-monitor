@@ -11,12 +11,14 @@ class VideoCapture:
         self._mock_env = os.environ.get("VIDEO_MOCK", "0") == "1"
         self.mock = self._mock_env
         self.device = os.environ.get("CAMERA_DEVICE", "/dev/video0")
-        self.width = int(os.environ.get("VIDEO_WIDTH", "1280"))
-        self.height = int(os.environ.get("VIDEO_HEIGHT", "720"))
-        self.fps = int(os.environ.get("VIDEO_FPS", "10"))
-        self.quality = int(os.environ.get("VIDEO_JPEG_QUALITY", "70"))
+        self.width = int(os.environ.get("VIDEO_WIDTH", "640"))
+        self.height = int(os.environ.get("VIDEO_HEIGHT", "480"))
+        self.fps = int(os.environ.get("VIDEO_FPS", "20"))
+        self.quality = int(os.environ.get("VIDEO_JPEG_QUALITY", "60"))
         self._frame = None
+        self._frame_version = 0
         self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
         self._available = False
         self._real_opened = False
         self._cap = None
@@ -36,10 +38,11 @@ class VideoCapture:
                 self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
                 self._cap.set(cv2.CAP_PROP_FPS, self.fps)
                 self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self._cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
                 self._available = True
                 self._real_opened = True
                 threading.Thread(target=self._capture_loop, daemon=True).start()
-                print(f"[video] opened {self.device} {self.width}x{self.height}@{self.fps}fps")
+                print(f"[video] opened {self.device} {self.width}x{self.height}@{self.fps}fps (raw MJPG)")
             else:
                 print(f"[video] failed to open {self.device}")
         except ImportError:
@@ -48,13 +51,15 @@ class VideoCapture:
             print(f"[video] camera error: {e}")
 
     def _capture_loop(self):
-        import cv2
         while self._cap and self._cap.isOpened():
             ret, frame = self._cap.read()
-            if ret:
-                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
-                with self._lock:
-                    self._frame = buf.tobytes()
+            if ret and frame is not None:
+                raw = frame.tobytes()
+                if raw[:2] == b'\xff\xd8':
+                    with self._cond:
+                        self._frame = raw
+                        self._frame_version += 1
+                        self._cond.notify_all()
             time.sleep(1.0 / self.fps)
 
     def _generate_mock_frame(self):
@@ -87,6 +92,18 @@ class VideoCapture:
             b'\xff\xda\x00\x08\x01\x01\x00\x00?\x00T\xdb\x9e\xa7\x95'
             b'\xff\xd9'
         )
+
+    def wait_frame(self, timeout=1.0):
+        """Block until a new frame arrives, then return it. Returns None on timeout."""
+        if self.mock:
+            time.sleep(1.0 / self.fps)
+            return self._generate_mock_frame()
+        with self._cond:
+            v = self._frame_version
+            while self._frame_version == v:
+                if not self._cond.wait(timeout):
+                    return None
+            return self._frame
 
     def get_frame(self):
         if self.mock:

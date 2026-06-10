@@ -150,9 +150,8 @@ def metrics_current():
 def video_stream():
     def generate():
         while True:
-            frame = video.get_frame()
+            frame = video.wait_frame(timeout=2.0)
             if frame is None:
-                time.sleep(0.1)
                 continue
             yield (b"--frame\r\n"
                    b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
