@@ -1,4 +1,4 @@
-"""Sensor data: real safetyd + real MPU-6500 I2C + mock env fallback."""
+"""Sensor data: real safetyd + real MPU-6500 I2C + real DHT11 + mock fallback."""
 
 import json
 import math
@@ -7,6 +7,7 @@ import random
 import time
 
 from mpu6500_reader import MPU6500Reader
+from dht11_reader import Dht11Reader
 
 
 class MockSensors:
@@ -14,23 +15,29 @@ class MockSensors:
         self.safetyd_path = safetyd_status_path
         self._t0 = time.time()
         self._mpu = MPU6500Reader()
+        self._dht11 = Dht11Reader()
+        self._dht11_cache = None
+        self._dht11_last_read = 0
+        self._dht11_interval = int(os.environ.get("DHT11_SAMPLE_INTERVAL_SEC", "3"))
 
     def sample(self):
         t = time.time() - self._t0
         safety, safety_source = self._read_safetyd()
         mpu_data, mpu_source = self._read_mpu6500(t)
+        env_data, env_source = self._read_env(t)
         return {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "risk_score": self._risk_score(t, safety),
             "sensors": {
                 "mpu6500": mpu_data,
-                "env": self._env(t),
+                "env": env_data,
                 "safety": safety,
             },
             "sensors_source": {
                 "safety": safety_source,
                 "mpu6500": mpu_source,
-                "env": "mock",
+                "env": env_source,
+                "env_detail": self._dht11.get_env_detail() if self._dht11.enabled else None,
             },
             "device": {},
             "sensor_scores": self._sensor_scores(t, safety),
@@ -66,7 +73,31 @@ class MockSensors:
             "vibration_score": round(min(vib, 10), 2),
         }, "mock"
 
-    def _env(self, t):
+    def _read_env(self, t):
+        """Try real DHT11 read, fallback to mock."""
+        now = time.time()
+        if self._dht11.available and (now - self._dht11_last_read) >= self._dht11_interval:
+            result = self._dht11.read()
+            self._dht11_last_read = now
+            if result is not None:
+                temp, humid = result
+                mock = self._env_mock(t)
+                return {
+                    "temp_c": round(temp, 1),
+                    "humidity_pct": round(humid, 1),
+                    "light_lux": mock["light_lux"],  # no real light sensor
+                }, "real_dht11_gpio"
+            # DHT11 enabled but read failed
+            mock = self._env_mock(t)
+            return mock, "dht11_error_fallback_mock"
+        if self._dht11.enabled and self._dht11.last_error:
+            # DHT11 enabled, interval not reached yet, use cache or mock
+            mock = self._env_mock(t)
+            return mock, "dht11_error_fallback_mock"
+        # DHT11 not enabled — pure mock
+        return self._env_mock(t), "mock"
+
+    def _env_mock(self, t):
         return {
             "temp_c": round(25 + 2 * math.sin(t * 0.01) + random.gauss(0, 0.3), 1),
             "humidity_pct": round(50 + 5 * math.sin(t * 0.008) + random.gauss(0, 1), 1),

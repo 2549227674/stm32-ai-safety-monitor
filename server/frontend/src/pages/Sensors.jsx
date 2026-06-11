@@ -29,19 +29,20 @@ export default function PageSensors({ sim }) {
     return "I²C · 100Hz 采样 → 1Hz 聚合";
   })();
 
-  // Env sensor subtitle: always show mock for env
+  // Env sensor subtitle
+  const envSrc = isReal ? src.env : null;
   const envTempSub = (() => {
     if (!isReal) return "°C · 外接 MCU 预留 · mock 数据";
-    const envSrc = src.env;
-    if (envSrc === "mock" || envSrc === "unknown" || !envSrc) return "°C · 外接 MCU 预留 · mock 数据";
-    return "°C · env sensor from device-agent";
+    if (envSrc === "real_dht11_gpio") return "°C · GPIO · DHT11 · 真实温湿度";
+    if (envSrc === "dht11_error_fallback_mock") return "°C · DHT11 读取失败 · fallback mock";
+    return "°C · mock 数据 · 未接真实温湿度传感器";
   })();
 
   const envHumSub = (() => {
     if (!isReal) return "%RH · 外接 MCU 预留 · mock 数据";
-    const envSrc = src.env;
-    if (envSrc === "mock" || envSrc === "unknown" || !envSrc) return "%RH · 外接 MCU 预留 · mock 数据";
-    return "%RH · env sensor from device-agent";
+    if (envSrc === "real_dht11_gpio") return "%RH · GPIO · DHT11 · 真实温湿度";
+    if (envSrc === "dht11_error_fallback_mock") return "%RH · DHT11 读取失败 · fallback mock";
+    return "%RH · mock 数据 · 未接真实温湿度传感器";
   })();
 
   return (
