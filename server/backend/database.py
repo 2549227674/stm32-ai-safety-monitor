@@ -155,16 +155,18 @@ def insert_event(event):
         return cursor.lastrowid
 
 
-def list_events(limit=50):
+def list_events(limit=50, device_id=None):
     with get_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM events
-            ORDER BY event_id DESC
-            LIMIT ?;
-            """,
-            (limit,),
-        ).fetchall()
+        if device_id:
+            rows = conn.execute(
+                "SELECT * FROM events WHERE device_id=? ORDER BY event_id DESC LIMIT ?;",
+                (device_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM events ORDER BY event_id DESC LIMIT ?;",
+                (limit,),
+            ).fetchall()
     return [event_row_to_dict(row) for row in rows]
 
 
@@ -304,6 +306,15 @@ def get_latest_ai_observation(device_id):
     if not row:
         return None
     return safe_json_loads(row["observation_json"], {})
+
+
+def list_ai_observations(device_id, limit=24):
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ai_observations WHERE device_id=? ORDER BY id DESC LIMIT ?",
+            (device_id, limit),
+        ).fetchall()
+    return [safe_json_loads(r["observation_json"], {}) for r in rows]
 
 
 def get_thresholds(device_id):

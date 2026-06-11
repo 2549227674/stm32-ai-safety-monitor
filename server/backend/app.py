@@ -14,6 +14,7 @@ from database import (
     init_db, insert_event, insert_image, list_events, get_latest_event,
     upsert_device_status, get_device_status, insert_telemetry_batch,
     get_telemetry_series, insert_ai_observation, get_latest_ai_observation,
+    list_ai_observations,
     get_thresholds, upsert_threshold, insert_alert, list_alerts,
     get_connection,
 )
@@ -104,8 +105,9 @@ def create_app():
 
     @app.get("/api/events")
     def get_events():
-        limit = parse_limit(request.args.get("limit"))
-        events = list_events(limit)
+        limit = parse_limit(request.args.get("limit"), max_limit=500)
+        device_id = request.args.get("device_id")
+        events = list_events(limit, device_id=device_id)
         return jsonify({"ok": True, "count": len(events), "events": events})
 
     @app.get("/api/status/latest")
@@ -238,6 +240,15 @@ def create_app():
             return jsonify({"ok": False, "error": "device_id required"}), 400
         obs = get_latest_ai_observation(device_id)
         return jsonify({"ok": True, "device_id": device_id, "observation": obs})
+
+    @app.get("/api/ai/observations")
+    def list_ai_obs():
+        device_id = request.args.get("device_id")
+        if not device_id:
+            return jsonify({"ok": False, "error": "device_id required"}), 400
+        limit = parse_limit(request.args.get("limit"), max_limit=200)
+        obs = list_ai_observations(device_id, limit)
+        return jsonify({"ok": True, "device_id": device_id, "count": len(obs), "observations": obs})
 
     # --- Thresholds ---
 
@@ -648,14 +659,14 @@ def parse_bool(value):
     return bool(value)
 
 
-def parse_limit(value):
+def parse_limit(value, max_limit=None):
     if value in (None, ""):
         return DEFAULT_LIMIT
     try:
         limit = int(value)
     except (TypeError, ValueError):
         return DEFAULT_LIMIT
-    return max(1, min(MAX_LIMIT, limit))
+    return max(1, min(max_limit or MAX_LIMIT, limit))
 
 
 def utc_timestamp():

@@ -315,6 +315,8 @@
   }
 
   async function loadInitialData(deviceId) {
+    const t = nowSec();
+
     // 加载设备详情
     try {
       const res = await fetch(`/api/devices/${deviceId}`);
@@ -343,12 +345,43 @@
       }
     } catch (e) { /* ignore */ }
 
-    // 加载最新 AI 观察
+    // 加载历史事件（最近 100 条）
     try {
-      const res = await fetch(`/api/ai/observations/latest?device_id=${deviceId}`);
+      const res = await fetch(`/api/events?device_id=${deviceId}&limit=100`);
       const data = await res.json();
-      if (data.ok && data.observation) {
-        sim.ai.unshift(normalizeObservation(data.observation));
+      if (data.ok && data.events && data.events.length) {
+        const existingIds = new Set(sim.events.map((e) => e.id));
+        for (const ev of data.events.reverse()) {
+          const level = ev.risk_score >= 7 ? "danger" : ev.risk_score >= 4 ? "warn" : "info";
+          const id = ev.event_id || ev.id || Math.random().toString(36).slice(2);
+          if (existingIds.has(id)) continue;
+          sim.events.push({
+            ts: t,
+            level,
+            source: ev.type || "event",
+            msg: `${ev.state || ""} · risk ${ev.risk_score}`,
+            id,
+          });
+        }
+        if (sim.events.length > 250) sim.events.splice(0, sim.events.length - 250);
+      }
+    } catch (e) { /* ignore */ }
+
+    // 加载 AI 观察历史（最近 24 条）
+    try {
+      const res = await fetch(`/api/ai/observations?device_id=${deviceId}&limit=24`);
+      const data = await res.json();
+      if (data.ok && data.observations && data.observations.length) {
+        const existingIds = new Set(sim.ai.map((o) => o.id));
+        for (const raw of data.observations) {
+          const obs = normalizeObservation(raw);
+          if (obs && !existingIds.has(obs.id)) {
+            sim.ai.push(obs);
+          }
+        }
+        // Keep sorted newest first
+        sim.ai.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        if (sim.ai.length > 24) sim.ai.length = 24;
       }
     } catch (e) { /* ignore */ }
 
@@ -360,6 +393,26 @@
         sim.alerts = data.alerts.map(normalizeAlert).filter(Boolean);
       }
     } catch (e) { /* ignore */ }
+
+    // 加载遥测历史（最近 10 分钟）
+    const telemetryMetrics = [
+      { metric: "risk_score", key: "risk" },
+      { metric: "cpu_temp_c", key: "cpu_temp" },
+      { metric: "mpu6500.vibration_score", key: "vib" },
+      { metric: "pir", key: "pir" },
+      { metric: "flame", key: "flame" },
+      { metric: "mq2", key: "mq2" },
+      { metric: "smoke", key: "smoke_score" },
+    ];
+    await Promise.all(telemetryMetrics.map(async ({ metric, key }) => {
+      try {
+        const res = await fetch(`/api/telemetry/series?device_id=${deviceId}&metric=${metric}&seconds=600`);
+        const data = await res.json();
+        if (data.ok && data.points) {
+          data.points.map(normalizePoint).filter(Boolean).forEach((p) => push(key, p.t, p.v));
+        }
+      } catch (e) { /* ignore */ }
+    }));
 
     // 加载通知设置
     try {
