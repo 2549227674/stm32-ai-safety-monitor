@@ -142,7 +142,8 @@ _worker_client = None
 def get_worker_client():
     global _worker_client
     if _worker_client is None:
-        _worker_client = Qwen3VLWorkerClient()
+        binary = os.environ.get("QWEN3VL_BINARY", DEFAULT_WORKER_BINARY)
+        _worker_client = Qwen3VLWorkerClient(binary_path=binary)
     return _worker_client
 
 
