@@ -62,11 +62,20 @@ class MockSensors:
         try:
             with open(self.safetyd_path) as f:
                 data = json.load(f)
+                # Support two safetyd status file formats:
+                #   New:  {"sensors": {"pir": 1, "flame": 0, "mq2": 0}}
+                #   OPi5: {"last_pir": 1, "last_flame": 0, "last_mq2": 0}
                 sensors = data.get("sensors", {})
+                if sensors:
+                    return {
+                        "pir": sensors.get("pir", 0),
+                        "flame": sensors.get("flame", 0),
+                        "mq2": sensors.get("mq2", 0),
+                    }, "safetyd_status_file"
                 return {
-                    "pir": sensors.get("pir", 0),
-                    "flame": sensors.get("flame", 0),
-                    "mq2": sensors.get("mq2", 0),
+                    "pir": data.get("last_pir", 0),
+                    "flame": data.get("last_flame", 0),
+                    "mq2": data.get("last_mq2", 0),
                 }, "safetyd_status_file"
         except Exception:
             return {
