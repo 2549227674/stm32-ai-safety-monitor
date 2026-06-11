@@ -14,7 +14,7 @@ class MockSensors:
 
     def sample(self):
         t = time.time() - self._t0
-        safety = self._read_safetyd()
+        safety, safety_source = self._read_safetyd()
         return {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "risk_score": self._risk_score(t, safety),
@@ -22,6 +22,11 @@ class MockSensors:
                 "mpu6500": self._mpu6500(t),
                 "env": self._env(t),
                 "safety": safety,
+            },
+            "sensors_source": {
+                "safety": safety_source,
+                "mpu6500": "mock",
+                "env": "mock",
             },
             "device": {},
             "sensor_scores": self._sensor_scores(t, safety),
@@ -62,13 +67,13 @@ class MockSensors:
                     "pir": sensors.get("pir", 0),
                     "flame": sensors.get("flame", 0),
                     "mq2": sensors.get("mq2", 0),
-                }
+                }, "safetyd_status_file"
         except Exception:
             return {
                 "pir": 1 if random.random() < 0.01 else 0,
                 "flame": 0,
                 "mq2": 0,
-            }
+            }, "fallback_mock"
 
     def _risk_score(self, t, safety):
         base = 1.0 + 0.5 * math.sin(t * 0.03)

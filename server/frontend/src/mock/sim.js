@@ -101,6 +101,8 @@
     cameraStatus: "unknown",
     _realtimeTs: null,
     _realtimeAge: 0,
+    sensorsSource: { safety: "unknown", mpu6500: "unknown", env: "unknown" },
+    realtimeWarnings: [],
   };
   METRICS.forEach((m) => (sim.buf[m] = []));
 
@@ -483,6 +485,9 @@
       if (rtSensors.flame != null) push("flame", t, rtSensors.flame);
       if (rtSensors.mq2 != null) push("mq2", t, rtSensors.mq2);
       if (rtSensors.vibration_score != null) push("vib", t, rtSensors.vibration_score);
+      if (rtSensors.accel_x != null) push("ax", t, rtSensors.accel_x);
+      if (rtSensors.accel_y != null) push("ay", t, rtSensors.accel_y);
+      if (rtSensors.accel_z != null) push("az", t, rtSensors.accel_z);
       if (rtSensors.temp_c != null) push("temp", t, rtSensors.temp_c);
       if (rtSensors.humidity_pct != null) push("hum", t, rtSensors.humidity_pct);
       if (rtSensors.light_lux != null) push("lux", t, rtSensors.light_lux);
@@ -493,6 +498,11 @@
       if (rtDev.disk_used_pct != null) push("disk", t, rtDev.disk_used_pct);
       sim._realtimeTs = rt.ts || null;
       sim._realtimeAge = rt.fetch_latency_ms || 0;
+      // Track sensor data sources
+      if (rt.sensors_source) {
+        sim.sensorsSource = rt.sensors_source;
+      }
+      sim.realtimeWarnings = rt.warnings || [];
     }
 
     // 更新最新事件（保留用于事件流展示）

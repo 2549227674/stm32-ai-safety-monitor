@@ -125,18 +125,29 @@ def status():
     with metrics_lock:
         m = dict(latest_metrics)
     cam = video.get_status()
-    return jsonify({
+
+    # Build warnings for missing data sources
+    warnings = []
+    sensors_source = m.get("sensors_source", {})
+    if sensors_source.get("safety") == "fallback_mock":
+        warnings.append("safetyd status file missing or unreadable, using fallback mock data")
+
+    result = {
         "ok": True,
         "device_id": DEVICE_ID,
         "ip": _get_ip(),
         "metrics": m,
+        "sensors_source": sensors_source,
         "video_available": video.is_available(),
         "camera": cam,
         "camera_status": cam["status"],
         "video_mode": cam["mode"],
         "ai_url": AI_URL,
         "backend_url": BACKEND_URL,
-    })
+    }
+    if warnings:
+        result["warnings"] = warnings
+    return jsonify(result)
 
 
 @app.get("/api/metrics/current")

@@ -541,6 +541,7 @@ class _RealtimeCache:
                 m = data.get("metrics", {})
                 sensors = m.get("sensors", {})
                 device = m.get("device", {})
+                sensors_source = data.get("sensors_source", m.get("sensors_source", {}))
                 result = {
                     "ts": m.get("ts"),
                     "fetch_latency_ms": latency_ms,
@@ -550,10 +551,14 @@ class _RealtimeCache:
                         "flame": sensors.get("safety", {}).get("flame"),
                         "mq2": sensors.get("safety", {}).get("mq2"),
                         "vibration_score": sensors.get("mpu6500", {}).get("vibration_score"),
+                        "accel_x": sensors.get("mpu6500", {}).get("accel_x"),
+                        "accel_y": sensors.get("mpu6500", {}).get("accel_y"),
+                        "accel_z": sensors.get("mpu6500", {}).get("accel_z"),
                         "temp_c": sensors.get("env", {}).get("temp_c"),
                         "humidity_pct": sensors.get("env", {}).get("humidity_pct"),
                         "light_lux": sensors.get("env", {}).get("light_lux"),
                     },
+                    "sensors_source": sensors_source,
                     "device": {
                         "cpu_temp_c": device.get("cpu_temp_c"),
                         "mem_used_mb": device.get("mem_used_mb"),
@@ -562,6 +567,7 @@ class _RealtimeCache:
                     },
                     "camera": data.get("camera"),
                     "ai": data.get("ai"),
+                    "warnings": data.get("warnings", []),
                 }
                 with self._lock:
                     self._data = result

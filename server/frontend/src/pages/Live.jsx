@@ -9,6 +9,7 @@ export default function PageLive({ sim }) {
   const dev = sim.device || {};
   const offline = isReal ? !dev.online : sim.scenario === "offline";
   const ai = sim.ai.find((o) => o.ok);
+  const src = isReal ? (sim.sensorsSource || {}) : {};
 
   // Real mode: derive video status from camera fields
   const cameraStatus = isReal ? sim.cameraStatus : (offline ? "offline" : "mock");
@@ -18,6 +19,17 @@ export default function PageLive({ sim }) {
 
   // Live pill: real mode checks device + video, mock mode checks scenario
   const liveActive = isReal ? (!offline && videoOnline && (isRealCam || isMockCam)) : !offline;
+
+  // Safety sensor subtitle
+  const safetySub = (() => {
+    if (!isReal) return "PIR / 火焰 / MQ-2";
+    const age = sim.realtimeAge();
+    if (age === Infinity) return "PIR / 火焰 / MQ-2 · safetyd 未运行/状态文件缺失";
+    const source = src.safety;
+    const sourceLabel = source === "safetyd_status_file" ? "safetyd" : source === "fallback_mock" ? "fallback mock" : "unknown source";
+    if (age > 3) return `PIR / 火焰 / MQ-2 · 数据滞后 ${Math.round(age)}s · ${sourceLabel}`;
+    return `PIR / 火焰 / MQ-2 · 实时 · ${sourceLabel}`;
+  })();
 
   return (
     <div className="grid" style={{ gridTemplateColumns: "minmax(0, 8fr) minmax(0, 4fr)" }} data-screen-label="实时巡检">
@@ -70,15 +82,7 @@ export default function PageLive({ sim }) {
             );
           })()}
         </Card>
-        <Card title="安全传感器" sub={
-          (() => {
-            const age = sim.realtimeAge();
-            if (!isReal) return "PIR / 火焰 / MQ-2";
-            if (age === Infinity) return "PIR / 火焰 / MQ-2 · 等待连接";
-            if (age > 3) return `PIR / 火焰 / MQ-2 · 数据滞后 ${Math.round(age)}s`;
-            return "PIR / 火焰 / MQ-2 · 实时";
-          })()
-        }>
+        <Card title="安全传感器" sub={safetySub}>
           <BinaryStrip rows={[
             { label: "PIR", data: sim.getSeries("pir"), color: "#5d9cf5" },
             { label: "FLAME", data: sim.getSeries("flame"), color: "#e5484d" },
