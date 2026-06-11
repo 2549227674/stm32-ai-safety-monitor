@@ -349,8 +349,10 @@
     try {
       const res = await fetch(`/api/events?device_id=${deviceId}&limit=100`);
       const data = await res.json();
+      console.log("[EdgeSim] history events:", data.count, "ok:", data.ok);
       if (data.ok && data.events && data.events.length) {
         const existingIds = new Set(sim.events.map((e) => e.id));
+        let added = 0;
         for (const ev of data.events.reverse()) {
           const level = ev.risk_score >= 7 ? "danger" : ev.risk_score >= 4 ? "warn" : "info";
           const id = ev.event_id || ev.id || Math.random().toString(36).slice(2);
@@ -362,15 +364,18 @@
             msg: `${ev.state || ""} · risk ${ev.risk_score}`,
             id,
           });
+          added++;
         }
+        console.log("[EdgeSim] history events added:", added, "total:", sim.events.length);
         if (sim.events.length > 250) sim.events.splice(0, sim.events.length - 250);
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { console.warn("[EdgeSim] history events error:", e); }
 
     // 加载 AI 观察历史（最近 24 条）
     try {
       const res = await fetch(`/api/ai/observations?device_id=${deviceId}&limit=24`);
       const data = await res.json();
+      console.log("[EdgeSim] history ai:", data.count, "ok:", data.ok);
       if (data.ok && data.observations && data.observations.length) {
         const existingIds = new Set(sim.ai.map((o) => o.id));
         for (const raw of data.observations) {
@@ -379,11 +384,11 @@
             sim.ai.push(obs);
           }
         }
-        // Keep sorted newest first
         sim.ai.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         if (sim.ai.length > 24) sim.ai.length = 24;
+        console.log("[EdgeSim] history ai total:", sim.ai.length);
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { console.warn("[EdgeSim] history ai error:", e); }
 
     // 加载告警
     try {
