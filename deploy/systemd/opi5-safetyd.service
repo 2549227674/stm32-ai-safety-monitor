@@ -10,7 +10,7 @@ ExecStart=/opt/edge-ai-safety-monitor/build/opi5-controller/opi5_safetyd --mode 
 Restart=always
 RestartSec=3
 WorkingDirectory=/opt/edge-ai-safety-monitor
-WatchdogSec=30
+WatchdogSec=120
 
 [Install]
 WantedBy=multi-user.target

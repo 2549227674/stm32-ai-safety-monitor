@@ -81,6 +81,7 @@
 #define DEFAULT_PATROL_INTERVAL_SEC 30
 #define DEFAULT_PATROL_ANGLES_STR "60,90,120"
 #define DEFAULT_PATROL_SETTLE_MS 500
+#define DEFAULT_PATROL_SETTLE_CAPTURE_MS 2000
 #define DEFAULT_PATROL_AI_ENABLE 1
 #define DEFAULT_PATROL_POST_EVENT 1
 #define DEFAULT_PATROL_MAX_ANGLES 16
@@ -166,6 +167,7 @@ typedef struct {
     int patrol_angles[DEFAULT_PATROL_MAX_ANGLES];
     int patrol_angle_count;
     int patrol_settle_ms;
+    int patrol_settle_capture_ms;
     int patrol_ai_enable;
     int patrol_post_event;
     int patrol_ai_timeout_sec;
@@ -513,6 +515,7 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->patrol_enable = set_from_env_int("PATROL_ENABLE", DEFAULT_PATROL_ENABLE);
     cfg->patrol_interval_sec = set_from_env_int("PATROL_INTERVAL_SEC", DEFAULT_PATROL_INTERVAL_SEC);
     cfg->patrol_settle_ms = set_from_env_int("PATROL_SETTLE_MS", DEFAULT_PATROL_SETTLE_MS);
+    cfg->patrol_settle_capture_ms = set_from_env_int("PATROL_SETTLE_CAPTURE_MS", DEFAULT_PATROL_SETTLE_CAPTURE_MS);
     cfg->patrol_ai_enable = set_from_env_int("PATROL_AI_ENABLE", DEFAULT_PATROL_AI_ENABLE);
     cfg->patrol_post_event = set_from_env_int("PATROL_POST_EVENT", DEFAULT_PATROL_POST_EVENT);
     cfg->patrol_ai_timeout_sec = set_from_env_int("PATROL_AI_TIMEOUT_SEC", DEFAULT_PATROL_AI_TIMEOUT_SEC);
@@ -1988,21 +1991,22 @@ static void write_status_json(const AppPaths *paths, const EventContext *ctx, co
 }
 
 /* ---- Servo PWM control via sysfs ---- */
-static int servo_set_angle(int angle_deg) {
-    char pwm_dir[256];
-    snprintf(pwm_dir, sizeof(pwm_dir),
+static char g_servo_pwm_dir[256];
+static int g_servo_pwm_ready = 0;
+
+static int servo_init(void) {
+    snprintf(g_servo_pwm_dir, sizeof(g_servo_pwm_dir),
              "/sys/class/pwm/pwmchip%d/pwm%d",
              DEFAULT_SERVO_PWM_CHIP, DEFAULT_SERVO_PWM_CHANNEL);
 
-    /* Ensure PWM exported */
-    char export_path[256], enable_path[280], period_path[280], duty_path[280];
+    char export_path[256], enable_path[280], period_path[280];
     snprintf(export_path, sizeof(export_path),
              "/sys/class/pwm/pwmchip%d/export", DEFAULT_SERVO_PWM_CHIP);
-    snprintf(enable_path, sizeof(enable_path), "%s/enable", pwm_dir);
-    snprintf(period_path, sizeof(period_path), "%s/period", pwm_dir);
-    snprintf(duty_path, sizeof(duty_path), "%s/duty_cycle", pwm_dir);
+    snprintf(enable_path, sizeof(enable_path), "%s/enable", g_servo_pwm_dir);
+    snprintf(period_path, sizeof(period_path), "%s/period", g_servo_pwm_dir);
 
-    if (!path_exists(pwm_dir)) {
+    /* Export PWM channel if needed */
+    if (!path_exists(g_servo_pwm_dir)) {
         char ch_str[8];
         snprintf(ch_str, sizeof(ch_str), "%d", DEFAULT_SERVO_PWM_CHANNEL);
         if (write_text_file(export_path, ch_str) != 0) {
@@ -2013,6 +2017,26 @@ static int servo_set_angle(int angle_deg) {
         usleep(100000);
     }
 
+    /* Set period ONCE, then enable — never rewrite period to avoid glitches */
+    char val[32];
+    snprintf(val, sizeof(val), "%d", DEFAULT_SERVO_PERIOD_NS);
+    if (write_text_file(period_path, val) != 0) {
+        log_msg("[servo] set period failed");
+        return -1;
+    }
+    write_text_file(enable_path, "1");
+
+    g_servo_pwm_ready = 1;
+    log_msg("[servo] PWM initialized: pwmchip%d ch%d period=%dns",
+            DEFAULT_SERVO_PWM_CHIP, DEFAULT_SERVO_PWM_CHANNEL, DEFAULT_SERVO_PERIOD_NS);
+    return 0;
+}
+
+static int servo_set_angle(int angle_deg) {
+    if (!g_servo_pwm_ready) {
+        if (servo_init() != 0) return -1;
+    }
+
     /* Clamp angle */
     if (angle_deg < 0) angle_deg = 0;
     if (angle_deg > 180) angle_deg = 180;
@@ -2021,28 +2045,24 @@ static int servo_set_angle(int angle_deg) {
     int pulse_ns = DEFAULT_SERVO_PULSE_MIN_NS +
         (int)((long)(DEFAULT_SERVO_PULSE_MAX_NS - DEFAULT_SERVO_PULSE_MIN_NS) * angle_deg / 180);
 
-    char val[32];
-    snprintf(val, sizeof(val), "%d", DEFAULT_SERVO_PERIOD_NS);
-    if (write_text_file(period_path, val) != 0) {
-        log_msg("[servo] set period failed");
-        return -1;
-    }
+    /* Only write duty_cycle — period is already set, no rewrite = no glitch */
+    char duty_path[280], val[32];
+    snprintf(duty_path, sizeof(duty_path), "%s/duty_cycle", g_servo_pwm_dir);
     snprintf(val, sizeof(val), "%d", pulse_ns);
     if (write_text_file(duty_path, val) != 0) {
         log_msg("[servo] set duty_cycle failed");
         return -1;
     }
-    write_text_file(enable_path, "1");
 
     return 0;
 }
 
 static void servo_disable(void) {
-    char enable_path[128];
-    snprintf(enable_path, sizeof(enable_path),
-             "/sys/class/pwm/pwmchip%d/pwm%d/enable",
-             DEFAULT_SERVO_PWM_CHIP, DEFAULT_SERVO_PWM_CHANNEL);
+    if (!g_servo_pwm_ready) return;
+    char enable_path[280];
+    snprintf(enable_path, sizeof(enable_path), "%s/enable", g_servo_pwm_dir);
     write_text_file(enable_path, "0");
+    g_servo_pwm_ready = 0;
 }
 
 /* ---- Patrol round ---- */
@@ -2128,10 +2148,44 @@ static void patrol_round(const AppConfig *cfg, const AppPaths *paths) {
     char overall_summary[512];
     overall_summary[0] = '\0';
 
-    /* Iterate angles */
-    for (int ai = 0; ai < cfg->patrol_angle_count && keep_running; ai++) {
-        int angle = cfg->patrol_angles[ai];
-        log_msg("[patrol] angle %d/%d: %d°", ai + 1, cfg->patrol_angle_count, angle);
+    /* Build sweep sequence: center → left → center → right → center
+     * Use first angle as "left", middle as "center", last as "right" */
+    int left_a  = cfg->patrol_angles[0];
+    int center_a = (cfg->patrol_angle_count >= 2) ? cfg->patrol_angles[1] : 90;
+    int right_a = (cfg->patrol_angle_count >= 3) ? cfg->patrol_angles[2] : 120;
+    /* Ensure center is actually the middle value */
+    if (cfg->patrol_angle_count >= 3) {
+        int sorted[3] = {left_a, center_a, right_a};
+        /* Simple sort for 3 elements */
+        if (sorted[0] > sorted[1]) { int t=sorted[0]; sorted[0]=sorted[1]; sorted[1]=t; }
+        if (sorted[1] > sorted[2]) { int t=sorted[1]; sorted[1]=sorted[2]; sorted[2]=t; }
+        if (sorted[0] > sorted[1]) { int t=sorted[0]; sorted[0]=sorted[1]; sorted[1]=t; }
+        left_a = sorted[0]; center_a = sorted[1]; right_a = sorted[2];
+    }
+
+    /* sweep_steps: {angle, should_capture} */
+    struct { int angle; int capture; } sweep[] = {
+        { center_a, 1 },   /* 1. 起始中心，抓拍 */
+        { left_a,   1 },   /* 2. 转左，抓拍 */
+        { center_a, 0 },   /* 3. 回中，只停顿不拍 */
+        { right_a,  1 },   /* 4. 转右，抓拍 */
+        { center_a, 0 },   /* 5. 回中，结束 */
+    };
+    int sweep_count = sizeof(sweep) / sizeof(sweep[0]);
+
+    /* Track captured images for batch AI */
+    char captured_paths[16][512];
+    int captured_angles[16];
+    int capture_count = 0;
+
+    log_msg("[patrol] sweep: %d°→%d°→%d°→%d°→%d° (capture at center/left/right)",
+            center_a, left_a, center_a, right_a, center_a);
+
+    for (int si = 0; si < sweep_count && keep_running; si++) {
+        int angle = sweep[si].angle;
+        int do_capture = sweep[si].capture;
+        log_msg("[patrol] step %d/%d: %d° %s", si + 1, sweep_count, angle,
+                do_capture ? "[抓拍]" : "[停顿]");
 
         /* 1. Move servo */
         if (servo_set_angle(angle) != 0) {
@@ -2139,116 +2193,142 @@ static void patrol_round(const AppConfig *cfg, const AppPaths *paths) {
             continue;
         }
 
-        /* 2. Settle */
-        usleep((unsigned long)cfg->patrol_settle_ms * 1000);
+        /* 2. Settle: longer for capture positions */
+        int settle_ms = do_capture ? cfg->patrol_settle_capture_ms : cfg->patrol_settle_ms;
+        log_msg("[patrol] settling %dms...", settle_ms);
+        usleep((unsigned long)settle_ms * 1000);
+
+        if (!do_capture) {
+            angles_ok++;
+            continue;
+        }
 
         /* 3. Capture frame */
         char capture_path[512];
         snprintf(capture_path, sizeof(capture_path),
                  "%s/%s_angle_%d.jpg", patrol_cap_dir, patrol_id, angle);
 
-        char q_dev[160], q_out[640], cmd[2048];
+        char q_dev[160], q_out[640], cap_cmd[2048];
         shell_quote(cfg->capture_device, q_dev, sizeof(q_dev));
         shell_quote(capture_path, q_out, sizeof(q_out));
-        snprintf(cmd, sizeof(cmd),
+        snprintf(cap_cmd, sizeof(cap_cmd),
                  "v4l2-ctl -d %s --set-fmt-video=width=640,height=480,pixelformat=MJPG "
                  "--stream-mmap=3 --stream-count=1 --stream-to=%s >/dev/null 2>&1",
                  q_dev, q_out);
 
-        int cap_ok = 0;
-        if (run_shell_command(cmd) == 0 && path_exists(capture_path)) {
-            cap_ok = 1;
+        if (run_shell_command(cap_cmd) == 0 && path_exists(capture_path)) {
             log_msg("[patrol] capture ok: %s", capture_path);
+            if (capture_count < 16) {
+                snprintf(captured_paths[capture_count], 512, "%s", capture_path);
+                captured_angles[capture_count] = angle;
+                capture_count++;
+            }
         } else {
             log_msg("[patrol] capture failed at %d°", angle);
         }
+        angles_ok++;
+    }
 
-        /* 4. AI inference (if enabled and capture ok) */
-        int risk_hint = 0;
-        char ai_summary[256] = "";
-        char ai_status_str[32] = "skipped";
+    /* 4. Batch AI: send all captured images + sensor summary in ONE call */
+    int risk_hint = 0;
+    char ai_summary[256] = "";
+    char ai_status_str[32] = "skipped";
 
-        if (cfg->patrol_ai_enable && cap_ok) {
-            /* Build metadata for AI */
-            char meta_path[512];
-            snprintf(meta_path, sizeof(meta_path), "%s/%s_meta_%d.json",
-                     paths->spool_dir, patrol_id, angle);
+    if (cfg->patrol_ai_enable && capture_count > 0) {
+        /* Build combined metadata with sensor summary */
+        char meta_path[512];
+        snprintf(meta_path, sizeof(meta_path), "%s/%s_meta.json",
+                 paths->spool_dir, patrol_id);
 
-            FILE *mfp = fopen(meta_path, "w");
-            if (mfp) {
-                char iso_ts[32];
-                iso_time_utc(iso_ts, sizeof(iso_ts));
-                fprintf(mfp,
-                        "{\n"
-                        "  \"contract_version\": \"1.0\",\n"
-                        "  \"device_id\": \"%s\",\n"
-                        "  \"source\": \"patrol\",\n"
-                        "  \"patrol_id\": \"%s\",\n"
-                        "  \"angle_deg\": %d,\n"
-                        "  \"timestamp\": \"%s\",\n"
-                        "  \"sensors\": {\"pir\": %d, \"flame\": %d, \"mq2\": %d},\n"
-                        "  \"image_format\": \"jpeg\"\n"
-                        "}\n",
-                        cfg->device_id, patrol_id, angle, iso_ts,
-                        sensors.pir, sensors.flame, sensors.mq2);
-                fclose(mfp);
-            }
-
-            char ai_out[512];
-            snprintf(ai_out, sizeof(ai_out), "%s/%s_ai_%d.json",
-                     paths->spool_dir, patrol_id, angle);
-            char ai_http[512];
-            snprintf(ai_http, sizeof(ai_http), "%s/%s_ai_%d.http",
-                     paths->spool_dir, patrol_id, angle);
-
-            (void)unlink(ai_out);
-            (void)unlink(ai_http);
-
-            char q_image[900], q_meta[900], q_url[400], q_ai_out[700], q_http_out[700];
-            char url[320];
-            snprintf(url, sizeof(url), "%s/api/infer/vision", cfg->opi5_url);
-            char image_part[700], meta_part[700];
-            snprintf(image_part, sizeof(image_part), "image=@%s", capture_path);
-            snprintf(meta_part, sizeof(meta_part), "metadata=<%s", meta_path);
-            shell_quote(image_part, q_image, sizeof(q_image));
-            shell_quote(meta_part, q_meta, sizeof(q_meta));
-            shell_quote(url, q_url, sizeof(q_url));
-            shell_quote(ai_out, q_ai_out, sizeof(q_ai_out));
-            shell_quote(ai_http, q_http_out, sizeof(q_http_out));
-
-            snprintf(cmd, sizeof(cmd),
-                     "curl -sS -X POST -F %s -F %s %s -o %s -w '%%{http_code}' "
-                     "--connect-timeout %d --max-time %d > %s 2>/dev/null",
-                     q_image, q_meta, q_url, q_ai_out,
-                     cfg->patrol_ai_timeout_sec, cfg->patrol_ai_timeout_sec, q_http_out);
-
-            log_msg("[patrol] AI inference at %d°", angle);
-            int ai_code = 0;
-            if (run_shell_command(cmd) == 0) {
-                ai_code = read_http_code_file(ai_http);
-            }
-
-            if (ai_code == 200) {
-                char ai_buf[16384];
-                if (read_text_file_limited(ai_out, ai_buf, sizeof(ai_buf)) == 0) {
-                    risk_hint = extract_risk_hint(ai_buf);
-                    copy_string(ai_status_str, sizeof(ai_status_str), "ok");
-                    /* Extract summary from AI JSON */
-                    char summary_raw[512];
-                    extract_json_string(ai_buf, "summary", summary_raw, sizeof(summary_raw));
-                    if (summary_raw[0]) {
-                        copy_string(ai_summary, sizeof(ai_summary), summary_raw);
-                    }
-                }
-            } else {
-                copy_string(ai_status_str, sizeof(ai_status_str), "offline");
-            }
-            log_msg("[patrol] AI at %d°: status=%s risk_hint=%d summary=%.60s",
-                    angle, ai_status_str, risk_hint, ai_summary);
+        FILE *mfp = fopen(meta_path, "w");
+        if (mfp) {
+            char iso_ts[32];
+            iso_time_utc(iso_ts, sizeof(iso_ts));
+            fprintf(mfp,
+                    "{\n"
+                    "  \"contract_version\": \"1.0\",\n"
+                    "  \"device_id\": \"%s\",\n"
+                    "  \"source\": \"patrol\",\n"
+                    "  \"patrol_id\": \"%s\",\n"
+                    "  \"timestamp\": \"%s\",\n"
+                    "  \"angles\": [%d, %d, %d],\n"
+                    "  \"capture_count\": %d,\n"
+                    "  \"sensors\": {\"pir\": %d, \"flame\": %d, \"mq2\": %d, \"soc_temp\": %.1f},\n"
+                    "  \"sensor_summary\": \"PIR=%d flame=%d MQ2=%d temperature=%.1fC\",\n"
+                    "  \"image_format\": \"jpeg\"\n"
+                    "}\n",
+                    cfg->device_id, patrol_id, iso_ts,
+                    left_a, center_a, right_a, capture_count,
+                    sensors.pir, sensors.flame, sensors.mq2,
+                    sensors.soc_temp_valid ? sensors.soc_temp_c : 0.0,
+                    sensors.pir, sensors.flame, sensors.mq2,
+                    sensors.soc_temp_valid ? sensors.soc_temp_c : 0.0);
+            fclose(mfp);
         }
 
-        if (risk_hint > max_risk) max_risk = risk_hint;
-        angles_ok++;
+        /* Build curl command with multiple -F image=@... */
+        char ai_out[512];
+        snprintf(ai_out, sizeof(ai_out), "%s/%s_ai.json",
+                 paths->spool_dir, patrol_id);
+        char ai_http[512];
+        snprintf(ai_http, sizeof(ai_http), "%s/%s_ai.http",
+                 paths->spool_dir, patrol_id);
+        (void)unlink(ai_out);
+        (void)unlink(ai_http);
+
+        char url[320];
+        snprintf(url, sizeof(url), "%s/api/infer/vision", cfg->opi5_url);
+
+        /* Build multi-image curl: -F image=@path1 -F image=@path2 ... */
+        char img_parts[4096];
+        img_parts[0] = '\0';
+        for (int ci = 0; ci < capture_count; ci++) {
+            char q_img[900];
+            char part[900];
+            snprintf(part, sizeof(part), "image=@%s", captured_paths[ci]);
+            shell_quote(part, q_img, sizeof(q_img));
+            if (ci > 0) strncat(img_parts, " ", sizeof(img_parts) - strlen(img_parts) - 1);
+            strncat(img_parts, q_img, sizeof(img_parts) - strlen(img_parts) - 1);
+        }
+
+        char q_meta[900], q_url[400], q_ai_out[700], q_http_out[700];
+        char meta_part[900];
+        snprintf(meta_part, sizeof(meta_part), "metadata=<%s", meta_path);
+        shell_quote(meta_part, q_meta, sizeof(q_meta));
+        shell_quote(url, q_url, sizeof(q_url));
+        shell_quote(ai_out, q_ai_out, sizeof(q_ai_out));
+        shell_quote(ai_http, q_http_out, sizeof(q_http_out));
+
+        char ai_cmd[8192];
+        snprintf(ai_cmd, sizeof(ai_cmd),
+                 "curl -sS -X POST %s -F %s %s -o %s -w '%%{http_code}' "
+                 "--connect-timeout %d --max-time %d > %s 2>/dev/null",
+                 img_parts, q_meta, q_url, q_ai_out,
+                 cfg->patrol_ai_timeout_sec, cfg->patrol_ai_timeout_sec * 2, q_http_out);
+
+        log_msg("[patrol] batch AI: %d images + sensor summary → %s", capture_count, cfg->opi5_url);
+        int ai_code = 0;
+        if (run_shell_command(ai_cmd) == 0) {
+            ai_code = read_http_code_file(ai_http);
+        }
+
+        if (ai_code == 200) {
+            char ai_buf[16384];
+            if (read_text_file_limited(ai_out, ai_buf, sizeof(ai_buf)) == 0) {
+                risk_hint = extract_risk_hint(ai_buf);
+                copy_string(ai_status_str, sizeof(ai_status_str), "ok");
+                char summary_raw[512];
+                extract_json_string(ai_buf, "summary", summary_raw, sizeof(summary_raw));
+                if (summary_raw[0]) {
+                    copy_string(ai_summary, sizeof(ai_summary), summary_raw);
+                }
+            }
+        } else {
+            copy_string(ai_status_str, sizeof(ai_status_str), "offline");
+        }
+        max_risk = risk_hint;
+        log_msg("[patrol] batch AI result: status=%s risk_hint=%d summary=%.80s",
+                ai_status_str, risk_hint, ai_summary);
     }
 
     /* Return servo to center */
@@ -2415,8 +2495,8 @@ static void patrol_round(const AppConfig *cfg, const AppPaths *paths) {
         log_msg("[patrol] backend POST: HTTP %03d", post_code);
     }
 
-    /* Disable servo PWM until next patrol */
-    servo_disable();
+    /* Keep servo at center with PWM active (prevents drift) */
+    servo_set_angle(90);
 
     log_msg("[patrol] DONE patrol_id=%s angles_ok=%d max_risk=%d duration=%lldms",
             patrol_id, angles_ok, max_risk, duration_ms);
@@ -2475,6 +2555,47 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
     }
 
     apply_actuators_by_state(cfg, ctx.state, &sensors, &ctx);
+
+    /* Water gun on flame: check every cycle (not just patrol) */
+    if (cfg->water_gun_on_flame_enable) {
+        long long now = now_ms();
+        if (sensors.flame) {
+            if (!g_wg_active) {
+                /* Check cooldown */
+                int can_fire = 1;
+                if (g_wg_last_stop_ms > 0) {
+                    long long since_stop = now - g_wg_last_stop_ms;
+                    if (since_stop >= 0 && since_stop < cfg->spray_cooldown_ms) {
+                        can_fire = 0;
+                        log_msg("[water_gun] flame=1 but cooldown (%lldms/%dms remaining)",
+                                cfg->spray_cooldown_ms - since_stop, cfg->spray_cooldown_ms);
+                    }
+                }
+                if (can_fire) {
+                    g_wg_active = 1;
+                    g_wg_last_trigger_ms = now;
+                    ensure_gpio_export_out(DEFAULT_GPIO_WATER_GUN);
+                    write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 1);
+                    log_msg("[water_gun] TRIGGER reason=flame_sensor max_ms=%d cooldown_ms=%d",
+                            cfg->spray_max_ms, cfg->spray_cooldown_ms);
+                }
+            }
+        }
+        /* Check max duration */
+        if (g_wg_active) {
+            long long dur = now - g_wg_last_trigger_ms;
+            if (dur >= cfg->spray_max_ms) {
+                write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 0);
+                g_wg_active = 0;
+                g_wg_last_stop_ms = now;
+                log_msg("[water_gun] STOP reason=max_duration dur=%lldms", dur);
+            }
+        }
+        /* Ensure off when not active and no flame */
+        if (!g_wg_active && !sensors.flame) {
+            write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 0);
+        }
+    }
 
     /* Refresh OLED display (non-fatal) */
     oled_refresh(g_oled_fd, cfg, &sensors, &ctx);
