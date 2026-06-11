@@ -28,16 +28,31 @@ function fmtUptime(s) {
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
   return (d ? d + "d " : "") + h + "h " + m + "m";
 }
+function toSec(ts) {
+  if (ts == null || ts === "") return null;
+  if (typeof ts === "number" && Number.isFinite(ts)) return ts;
+  if (typeof ts === "string") {
+    const n = Number(ts);
+    if (Number.isFinite(n)) return n;
+    const ms = new Date(ts).getTime();
+    if (Number.isFinite(ms)) return ms / 1000;
+  }
+  return null;
+}
 function timeAgo(ts) {
-  if (!ts) return "—";
-  const s = Math.floor(Date.now() / 1000) - ts;
+  const sec = toSec(ts);
+  if (sec == null) return "—";
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - sec));
+  if (!Number.isFinite(s)) return "—";
   if (s < 3) return "刚刚";
   if (s < 60) return s + "s 前";
   if (s < 3600) return Math.floor(s / 60) + "m 前";
   return Math.floor(s / 3600) + "h 前";
 }
 function fmtTime(ts) {
-  const d = new Date(ts * 1000);
+  const sec = toSec(ts);
+  if (sec == null) return "—";
+  const d = new Date(sec * 1000);
   const p = (n) => String(n).padStart(2, "0");
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
