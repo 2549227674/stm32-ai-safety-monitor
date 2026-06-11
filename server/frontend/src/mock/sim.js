@@ -492,15 +492,9 @@
         }
       } catch (e) { /* ignore */ }
 
-      // 检查视频流状态
-      try {
-        const res = await fetch(`/api/video/snapshot.jpg?device_id=${deviceId}`, { method: "HEAD", signal: AbortSignal.timeout(3000) });
-        sim.videoOnline = res.ok;
-        sim.videoError = res.ok ? null : `HTTP ${res.status}`;
-      } catch (e) {
-        sim.videoOnline = false;
-        sim.videoError = e.message;
-      }
+      // 视频状态从设备心跳获取，不再单独 HEAD snapshot 探测
+      // (heartbeat 已包含 video_available / camera_status)
+      sim.videoError = null;
 
       emit();
     }, 10000);

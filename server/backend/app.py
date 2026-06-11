@@ -275,13 +275,22 @@ def create_app():
             return jsonify({"ok": False, "error": "device agent not available"}), 503
         import requests as req
         try:
-            resp = req.get(f"{agent_url}/api/video/stream", stream=True, timeout=10)
+            resp = req.get(f"{agent_url}/api/video/stream", stream=True, timeout=(3, None))
             def generate():
-                for chunk in resp.iter_content(chunk_size=65536):
-                    yield chunk
+                try:
+                    for chunk in resp.iter_content(chunk_size=4096):
+                        if chunk:
+                            yield chunk
+                finally:
+                    resp.close()
             return app.response_class(
                 generate(),
                 content_type=resp.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame"),
+                headers={
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "X-Accel-Buffering": "no",
+                },
             )
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 503

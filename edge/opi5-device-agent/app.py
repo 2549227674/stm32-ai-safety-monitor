@@ -154,8 +154,18 @@ def video_stream():
             if frame is None:
                 continue
             yield (b"--frame\r\n"
-                   b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
-    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+                   b"Content-Type: image/jpeg\r\n"
+                   b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
+                   + frame + b"\r\n")
+    return Response(
+        generate(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/video/snapshot.jpg")
