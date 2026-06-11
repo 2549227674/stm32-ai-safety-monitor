@@ -129,7 +129,8 @@ export default function PageOverview({ sim, nav }) {
               <div key={e.id} className={"feed-item lvl-" + e.level}>
                 <span className="ts">{fmtTime(e.ts)}</span>
                 <Tag level={e.level === "danger" ? "danger" : e.level === "warn" ? "warn" : "info"}>{LEVEL_LABEL[e.level]}</Tag>
-                <span className="msg">{e.msg}</span>
+                {e.source === "patrol" && <Tag level="info">巡检</Tag>}
+                <span className="msg">{e.source === "patrol" && e.patrol ? `舵机巡检 · ${e.patrol.angles?.map(a => a + "°").join(" / ") || ""} · 最高风险 ${e.patrol.max_risk_hint ?? "?"}` : e.msg}</span>
               </div>
             ))}
           </div>

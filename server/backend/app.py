@@ -594,6 +594,8 @@ def normalize_event(payload, source):
         payload.get("actuators", {}), DEFAULT_ACTUATORS, "actuators"
     )
     risk_value = payload.get("risk_score", payload.get("risk", 0))
+    # Use payload source (e.g. "patrol") if present, else fall back to caller
+    effective_source = payload.get("source") or source
 
     return {
         "timestamp": utc_timestamp(),
@@ -606,7 +608,7 @@ def normalize_event(payload, source):
         "sensors": sensors,
         "actuators": actuators,
         "raw_json": payload,
-        "source": source,
+        "source": effective_source,
     }
 
 

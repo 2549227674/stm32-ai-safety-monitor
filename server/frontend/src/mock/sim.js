@@ -359,12 +359,15 @@
           const level = ev.risk_score >= 7 ? "danger" : ev.risk_score >= 4 ? "warn" : "info";
           const id = ev.event_id || ev.id || Math.random().toString(36).slice(2);
           if (existingIds.has(id)) continue;
+          const eventSource = ev.source || ev.type || "event";
+          const patrol = ev.patrol || null;
           sim.events.push({
             ts: t,
             level,
-            source: ev.type || "event",
-            msg: `${ev.state || ""} · risk ${ev.risk_score}`,
+            source: eventSource,
+            msg: patrol ? patrol.overall_summary || `舵机巡检 · ${patrol.angles?.length || 0} 角度 · risk ${ev.risk_score}` : `${ev.state || ""} · risk ${ev.risk_score}`,
             id,
+            patrol,
           });
           added++;
         }
@@ -507,12 +510,16 @@
 
     // 更新最新事件（保留用于事件流展示）
     if (tick.latest_event) {
+      const le = tick.latest_event;
+      const leSource = le.source || le.type || "event";
+      const lePatrol = le.patrol || null;
       const ev = {
         ts: t,
-        level: tick.latest_event.risk_score >= 7 ? "danger" : tick.latest_event.risk_score >= 4 ? "warn" : "info",
-        source: tick.latest_event.type || "event",
-        msg: `${tick.latest_event.state || ""} · risk ${tick.latest_event.risk_score}`,
-        id: tick.latest_event.id || Math.random().toString(36).slice(2),
+        level: le.risk_score >= 7 ? "danger" : le.risk_score >= 4 ? "warn" : "info",
+        source: leSource,
+        msg: lePatrol ? lePatrol.overall_summary || `舵机巡检 · risk ${le.risk_score}` : `${le.state || ""} · risk ${le.risk_score}`,
+        id: le.id || le.event_id || Math.random().toString(36).slice(2),
+        patrol: lePatrol,
       };
       if (!sim.events.length || sim.events[0].msg !== ev.msg) {
         sim.events.unshift(ev);

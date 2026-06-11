@@ -382,4 +382,5 @@ def event_row_to_dict(row):
         raw.get("image_url") if isinstance(raw, dict) else None
     ) or ((vision or {}).get("image_url") if isinstance(vision, dict) else None)
     out["latency_ms"] = raw.get("latency_ms") if isinstance(raw, dict) else None
+    out["patrol"] = raw.get("patrol") if isinstance(raw, dict) else None
     return out
