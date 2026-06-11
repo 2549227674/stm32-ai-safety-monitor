@@ -99,6 +99,8 @@
     videoOnline: false,
     videoError: null,
     cameraStatus: "unknown",
+    _realtimeTs: null,
+    _realtimeAge: 0,
   };
   METRICS.forEach((m) => (sim.buf[m] = []));
 
@@ -414,7 +416,28 @@
       }
     }
 
-    // 更新最新事件
+    // 实时通道：优先使用 device-agent 直接获取的传感器数据
+    if (tick.realtime) {
+      const rt = tick.realtime;
+      const rtSensors = rt.sensors || {};
+      if (rt.risk_score != null) push("risk", t, rt.risk_score);
+      if (rtSensors.pir != null) push("pir", t, rtSensors.pir);
+      if (rtSensors.flame != null) push("flame", t, rtSensors.flame);
+      if (rtSensors.mq2 != null) push("mq2", t, rtSensors.mq2);
+      if (rtSensors.vibration_score != null) push("vib", t, rtSensors.vibration_score);
+      if (rtSensors.temp_c != null) push("temp", t, rtSensors.temp_c);
+      if (rtSensors.humidity_pct != null) push("hum", t, rtSensors.humidity_pct);
+      if (rtSensors.light_lux != null) push("lux", t, rtSensors.light_lux);
+      const rtDev = rt.device || {};
+      if (rtDev.cpu_temp_c != null) push("cpu_temp", t, rtDev.cpu_temp_c);
+      if (rtDev.mem_used_mb != null) push("mem_used", t, rtDev.mem_used_mb);
+      if (rtDev.cpu_load_1m != null) push("load", t, rtDev.cpu_load_1m);
+      if (rtDev.disk_used_pct != null) push("disk", t, rtDev.disk_used_pct);
+      sim._realtimeTs = rt.ts || null;
+      sim._realtimeAge = rt.fetch_latency_ms || 0;
+    }
+
+    // 更新最新事件（保留用于事件流展示）
     if (tick.latest_event) {
       const ev = {
         ts: t,
@@ -428,12 +451,14 @@
         if (sim.events.length > 250) sim.events.pop();
       }
 
-      // 从事件中提取传感器数据
-      const s = tick.latest_event.sensors || {};
-      if (s.pir != null) push("pir", t, s.pir);
-      if (s.flame != null) push("flame", t, s.flame);
-      if (s.mq2 != null) push("mq2", t, s.mq2);
-      if (tick.latest_event.risk_score != null) push("risk", t, tick.latest_event.risk_score);
+      // 从事件中提取传感器数据（仅在 realtime 通道无数据时作为 fallback）
+      if (!tick.realtime) {
+        const s = tick.latest_event.sensors || {};
+        if (s.pir != null) push("pir", t, s.pir);
+        if (s.flame != null) push("flame", t, s.flame);
+        if (s.mq2 != null) push("mq2", t, s.mq2);
+        if (tick.latest_event.risk_score != null) push("risk", t, tick.latest_event.risk_score);
+      }
     }
 
     // 更新 AI 观察
@@ -459,11 +484,8 @@
   }
 
   function startPolling(deviceId) {
-    // 每 10 秒轮询遥测和设备状态
+    // 历史数据补全：30 秒拉一次 telemetry series（实时数据走 SSE realtime 通道）
     sim._pollTimer = setInterval(async () => {
-      const t = nowSec();
-
-      // 轮询多个遥测指标
       const metrics = ["risk_score", "cpu_temp_c", "mpu6500.vibration_score"];
       for (const metric of metrics) {
         try {
@@ -476,28 +498,11 @@
         } catch (e) { /* ignore */ }
       }
 
-      // 轮询设备状态
-      try {
-        const res = await fetch(`/api/devices/${deviceId}`);
-        const data = await res.json();
-        if (data.ok && data.device) {
-          sim.device = normalizeDevice(data.device);
-          sim.cameraStatus = sim.device.camera_status;
-          sim.videoOnline = sim.device.video_available || sim.device.camera_status === "online" || sim.device.camera_status === "mock";
-          const h = sim.device.health;
-          if (h.cpu_temp_c != null) push("cpu_temp", t, h.cpu_temp_c);
-          if (h.mem_used_mb != null) push("mem_used", t, h.mem_used_mb);
-          if (h.cpu_load_1m != null) push("load", t, h.cpu_load_1m);
-          if (h.disk_used_pct != null) push("disk", t, h.disk_used_pct);
-        }
-      } catch (e) { /* ignore */ }
-
       // 视频状态从设备心跳获取，不再单独 HEAD snapshot 探测
-      // (heartbeat 已包含 video_available / camera_status)
       sim.videoError = null;
 
       emit();
-    }, 10000);
+    }, 30000);
   }
 
   /* ============================================================
@@ -738,6 +743,10 @@
     return b.slice(i);
   };
   sim.latest = latest;
+  sim.realtimeAge = function () {
+    if (!sim._realtimeTs) return Infinity;
+    return nowSec() - new Date(sim._realtimeTs).getTime() / 1000;
+  };
 
   /* ---------------- seed mock history ---------------- */
   function seedHistory() {

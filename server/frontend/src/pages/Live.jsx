@@ -70,7 +70,15 @@ export default function PageLive({ sim }) {
             );
           })()}
         </Card>
-        <Card title="安全传感器">
+        <Card title="安全传感器" sub={
+          (() => {
+            const age = sim.realtimeAge();
+            if (!isReal) return "PIR / 火焰 / MQ-2";
+            if (age === Infinity) return "PIR / 火焰 / MQ-2 · 等待连接";
+            if (age > 3) return `PIR / 火焰 / MQ-2 · 数据滞后 ${Math.round(age)}s`;
+            return "PIR / 火焰 / MQ-2 · 实时";
+          })()
+        }>
           <BinaryStrip rows={[
             { label: "PIR", data: sim.getSeries("pir"), color: "#5d9cf5" },
             { label: "FLAME", data: sim.getSeries("flame"), color: "#e5484d" },

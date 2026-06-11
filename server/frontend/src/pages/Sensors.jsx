@@ -6,11 +6,12 @@ export default function PageSensors({ sim }) {
   const [win, setWin] = React.useState(600);
   const T = sim.thresholds;
   const off = sim.scenario === "offline";
+  const isReal = sim.mode === "real";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} data-screen-label="传感器">
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <span className="t3" style={{ fontSize: 12 }}>采样 1 Hz · 批量上报 30 s · 时间窗</span>
+        <span className="t3" style={{ fontSize: 12 }}>采样 1 Hz · 实时 SSE · 历史 30s 补全 · 时间窗</span>
         <div className="seg">
           {[{ s: 120, l: "2 min" }, { s: 300, l: "5 min" }, { s: 600, l: "10 min" }].map((o) => (
             <button key={o.s} className={win === o.s ? "on" : ""} onClick={() => setWin(o.s)}>{o.l}</button>
@@ -30,15 +31,23 @@ export default function PageSensors({ sim }) {
             { name: "az", color: "#a18ef5", data: sim.getSeries("az") },
           ]} />
         </Card>
-        <Card title="DHT11 · 温度" sub="°C · 外接 MCU 预留 · mock 数据"
+        <Card title="DHT11 · 温度" sub={isReal ? "°C · env sensor from device-agent" : "°C · 外接 MCU 预留 · mock 数据"}
           right={<span className="num" style={{ fontSize: 16, fontWeight: 600 }}>{sim.latest("temp")}°C</span>}>
           <TimeChart data={sim.getSeries("temp")} window={win} height={140} color="#5d9cf5" />
         </Card>
-        <Card title="DHT11 · 湿度" sub="%RH · 外接 MCU 预留 · mock 数据"
+        <Card title="DHT11 · 湿度" sub={isReal ? "%RH · env sensor from device-agent" : "%RH · 外接 MCU 预留 · mock 数据"}
           right={<span className="num" style={{ fontSize: 16, fontWeight: 600 }}>{sim.latest("hum")}%</span>}>
           <TimeChart data={sim.getSeries("hum")} window={win} height={140} color="#41bd80" />
         </Card>
-        <Card title="安全传感器 · 二值信号" sub="PIR / 火焰 / MQ-2 烟雾">
+        <Card title="安全传感器 · 二值信号" sub={
+          (() => {
+            const age = sim.realtimeAge();
+            if (!isReal) return "PIR / 火焰 / MQ-2 烟雾";
+            if (age === Infinity) return "PIR / 火焰 / MQ-2 · 等待连接";
+            if (age > 3) return `PIR / 火焰 / MQ-2 · 数据滞后 ${Math.round(age)}s`;
+            return "PIR / 火焰 / MQ-2 · 实时";
+          })()
+        }>
           <div style={{ paddingTop: 6 }}>
             <BinaryStrip window={win} height={20} rows={[
               { label: "PIR", data: sim.getSeries("pir"), color: "#5d9cf5" },

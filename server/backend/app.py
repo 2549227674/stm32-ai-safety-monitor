@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -466,14 +467,71 @@ def _check_ai_alert(device_id, obs, obs_id, notifier):
 
 def _build_tick(device_id):
     from datetime import datetime, timezone
-    return {
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    tick = {
         "type": "tick",
-        "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "timestamp": now,
         "device": get_device_status(device_id) if device_id else None,
         "latest_event": get_latest_event(),
         "latest_ai_observation": get_latest_ai_observation(device_id) if device_id else None,
         "alerts": list_alerts(device_id, 5) if device_id else [],
     }
+    # Realtime channel: pull fresh data directly from device-agent
+    tick["realtime"] = _fetch_realtime(device_id)
+    return tick
+
+
+# Cache device-agent URL to avoid DB lookup every second
+_agent_url_cache = {"url": None, "device_id": None}
+
+
+def _fetch_realtime(device_id):
+    """Fetch fresh sensor/metric data directly from device-agent /api/status."""
+    import requests as req
+    from time import monotonic
+    try:
+        # Resolve agent URL (cached)
+        if _agent_url_cache.get("device_id") != device_id:
+            _agent_url_cache["url"] = _get_device_agent_url(device_id)
+            _agent_url_cache["device_id"] = device_id
+        agent_url = _agent_url_cache["url"]
+        if not agent_url:
+            return None
+
+        t0 = monotonic()
+        resp = req.get(f"{agent_url}/api/status", timeout=2)
+        latency_ms = int((monotonic() - t0) * 1000)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        m = data.get("metrics", {})
+        sensors = m.get("sensors", {})
+        device = m.get("device", {})
+        return {
+            "ts": m.get("ts"),
+            "fetch_latency_ms": latency_ms,
+            "risk_score": m.get("risk_score"),
+            "sensors": {
+                "pir": sensors.get("safety", {}).get("pir"),
+                "flame": sensors.get("safety", {}).get("flame"),
+                "mq2": sensors.get("safety", {}).get("mq2"),
+                "vibration_score": sensors.get("mpu6500", {}).get("vibration_score"),
+                "temp_c": sensors.get("env", {}).get("temp_c"),
+                "humidity_pct": sensors.get("env", {}).get("humidity_pct"),
+                "light_lux": sensors.get("env", {}).get("light_lux"),
+            },
+            "device": {
+                "cpu_temp_c": device.get("cpu_temp_c"),
+                "mem_used_mb": device.get("mem_used_mb"),
+                "cpu_load_1m": device.get("cpu_load_1m"),
+                "disk_used_pct": device.get("disk_used_pct"),
+            },
+            "camera": data.get("camera"),
+            "ai": data.get("ai"),
+            "services": data.get("metrics", {}).get("services") if isinstance(m.get("services"), dict) else None,
+        }
+    except Exception:
+        return None
 
 
 def normalize_event(payload, source):
