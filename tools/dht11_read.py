@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 DHT11 reader using lgpio (Python). Must run as root.
-Usage: sudo python3 dht11_read.py <gpio> [count]
+Usage: sudo python3 dht11_read.py <gpio> [count] [--diag]
 Output: one JSON line per reading
 """
 
@@ -17,15 +17,10 @@ except ImportError:
     sys.exit(1)
 
 
-def read_dht11(gpio: int) -> dict:
+def read_dht11(gpio: int, diag: bool = False) -> dict:
     """Read DHT11 sensor. Returns dict with temp/humid or error."""
-    chip_idx = gpio // 32
-    line = gpio % 32
-
-    # Map gpio number to physical gpiochip index for RK3588S
-    # gpiochip0: GPIO 0-31, gpiochip32: 32-63, ..., gpiochip128: 128-159
-    phys_chip_map = {0: 0, 32: 1, 64: 2, 96: 3, 128: 4, 160: 5}
     base = (gpio // 32) * 32
+    phys_chip_map = {0: 0, 32: 1, 64: 2, 96: 3, 128: 4, 160: 5}
     phys_chip = phys_chip_map.get(base)
     if phys_chip is None:
         return {"error": f"gpio {gpio} not in known chip range"}
@@ -38,48 +33,80 @@ def read_dht11(gpio: int) -> dict:
         return {"error": f"gpiochip_open({phys_chip}) failed: {e}"}
 
     try:
-        # Start signal: output low for 20ms
-        lgpio.gpio_claim_output(h, ln, 0)
-        time.sleep(0.018)  # 18ms low
+        # === Diagnostic: check idle state ===
+        lgpio.gpio_claim_input(h, ln)
+        idle = lgpio.gpio_read(h, ln)
+        if diag:
+            print(f"[diag] idle state: {idle}", file=sys.stderr)
+        if idle == 0:
+            # Line stuck low — likely missing pull-up
+            lgpio.gpiochip_close(h)
+            return {
+                "error": "DATA line stuck LOW before start signal. "
+                         "Check: 1) 4.7k-10k pull-up to 3.3V on DATA, "
+                         "2) DHT11 VCC connected to 3.3V, "
+                         "3) GND connected, "
+                         "4) DATA on correct GPIO pin"
+            }
 
-        # Switch to input (release line, pull-up brings it high)
+        # === Start signal: pull low for >= 18ms ===
+        lgpio.gpio_free(h, ln)
+        lgpio.gpio_claim_output(h, ln, 0)
+        time.sleep(0.020)  # 20ms
+
+        # === Release: switch to input ===
         lgpio.gpio_free(h, ln)
         lgpio.gpio_claim_input(h, ln)
 
-        # Small delay for DHT11 response
-        time.sleep(0.00005)  # 50µs
+        # === Wait for DHT11 response: LOW for ~80µs ===
+        t0 = time.monotonic()
+        while lgpio.gpio_read(h, ln) == 1:
+            if time.monotonic() - t0 > 0.0002:
+                return {"error": "no DHT11 response (never went low)"}
 
-        # Read 40 bits with timeout
+        # === Measure response LOW duration ===
+        t0 = time.monotonic()
+        while lgpio.gpio_read(h, ln) == 0:
+            if time.monotonic() - t0 > 0.001:  # 1ms
+                low_dur = (time.monotonic() - t0) * 1_000_000
+                return {"error": f"DHT11 response low {low_dur:.0f}µs (expected ~80µs). "
+                         "Possible missing pull-up resistor on DATA line."}
+
+        # === Wait for response HIGH ~80µs ===
+        t0 = time.monotonic()
+        while lgpio.gpio_read(h, ln) == 1:
+            if time.monotonic() - t0 > 0.001:
+                return {"error": "DHT11 response high too long"}
+
+        # === Read 40 data bits ===
         bits = []
-        timeout = 0.0002  # 200µs per transition timeout
-
         for i in range(40):
-            # Wait for rising edge (end of low period)
+            # Wait for LOW period to end (rising edge)
             t0 = time.monotonic()
             while lgpio.gpio_read(h, ln) == 0:
-                if time.monotonic() - t0 > timeout:
+                if time.monotonic() - t0 > 0.0001:
                     return {"error": f"timeout low bit {i}"}
 
-            # Measure high duration
+            # Measure HIGH duration
             t1 = time.monotonic()
             while lgpio.gpio_read(h, ln) == 1:
-                if time.monotonic() - t1 > timeout:
+                if time.monotonic() - t1 > 0.0001:
                     return {"error": f"timeout high bit {i}"}
 
-            duration = time.monotonic() - t1
-            bits.append(1 if duration > 0.000040 else 0)  # >40µs = 1
+            high_us = (time.monotonic() - t1) * 1_000_000
+            bits.append(1 if high_us > 40 else 0)
 
-        # Pack into bytes
+        # === Pack into 5 bytes ===
         data = [0] * 5
         for i in range(40):
             data[i // 8] = (data[i // 8] << 1) | bits[i]
 
-        # Checksum
+        # === Checksum ===
         check = (data[0] + data[1] + data[2] + data[3]) & 0xFF
         if check != data[4]:
             return {
                 "error": f"checksum mismatch: got {data[4]}, expected {check}",
-                "raw": data,
+                "raw": [hex(b) for b in data],
             }
 
         return {
@@ -99,16 +126,25 @@ def read_dht11(gpio: int) -> dict:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: sudo python3 dht11_read.py <gpio> [count]", file=sys.stderr)
+        print("Usage: sudo python3 dht11_read.py <gpio> [count] [--diag]", file=sys.stderr)
         sys.exit(1)
 
     gpio = int(sys.argv[1])
-    count = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    count = 1
+    diag = False
+    for arg in sys.argv[2:]:
+        if arg == "--diag":
+            diag = True
+        else:
+            try:
+                count = int(arg)
+            except ValueError:
+                pass
     count = min(count, 100)
 
     for i in range(count):
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        result = read_dht11(gpio)
+        result = read_dht11(gpio, diag=diag)
         result["ts"] = ts
         result["gpio"] = gpio
         print(json.dumps(result), flush=True)
