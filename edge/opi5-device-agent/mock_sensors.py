@@ -1,4 +1,4 @@
-"""Mock sensor data generator for demo/display purposes."""
+"""Sensor data: real safetyd + real MPU-6500 I2C + mock env fallback."""
 
 import json
 import math
@@ -6,33 +6,49 @@ import os
 import random
 import time
 
+from mpu6500_reader import MPU6500Reader
+
 
 class MockSensors:
     def __init__(self, safetyd_status_path):
         self.safetyd_path = safetyd_status_path
         self._t0 = time.time()
+        self._mpu = MPU6500Reader()
 
     def sample(self):
         t = time.time() - self._t0
         safety, safety_source = self._read_safetyd()
+        mpu_data, mpu_source = self._read_mpu6500(t)
         return {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "risk_score": self._risk_score(t, safety),
             "sensors": {
-                "mpu6500": self._mpu6500(t),
+                "mpu6500": mpu_data,
                 "env": self._env(t),
                 "safety": safety,
             },
             "sensors_source": {
                 "safety": safety_source,
-                "mpu6500": "mock",
+                "mpu6500": mpu_source,
                 "env": "mock",
             },
             "device": {},
             "sensor_scores": self._sensor_scores(t, safety),
         }
 
-    def _mpu6500(self, t):
+    def _read_mpu6500(self, t):
+        """Try real I2C read, fallback to mock."""
+        if self._mpu.available:
+            result = self._mpu.read()
+            if result is not None:
+                ax, ay, az, gx, gy, gz = result
+                vib = abs(ax) + abs(ay) + abs(az - 1.0)
+                return {
+                    "accel_x": ax, "accel_y": ay, "accel_z": az,
+                    "gyro_x": gx, "gyro_y": gy, "gyro_z": gz,
+                    "vibration_score": round(min(vib, 10), 2),
+                }, "real_i2c"
+        # Fallback: mock sine wave
         base_x = 0.01 * math.sin(t * 0.5) + random.gauss(0, 0.005)
         base_y = 0.02 * math.cos(t * 0.3) + random.gauss(0, 0.005)
         base_z = 0.98 + 0.01 * math.sin(t * 0.1) + random.gauss(0, 0.003)
@@ -42,14 +58,13 @@ class MockSensors:
             base_x += random.uniform(0.3, 0.8)
             vib += 2.0
         return {
-            "accel_x": round(base_x, 4),
-            "accel_y": round(base_y, 4),
+            "accel_x": round(base_x, 4), "accel_y": round(base_y, 4),
             "accel_z": round(base_z, 4),
             "gyro_x": round(0.1 * math.sin(t * 0.7) + random.gauss(0, 0.05), 3),
             "gyro_y": round(0.05 * math.cos(t * 0.4) + random.gauss(0, 0.03), 3),
             "gyro_z": round(0.2 * math.sin(t * 0.2) + random.gauss(0, 0.04), 3),
             "vibration_score": round(min(vib, 10), 2),
-        }
+        }, "mock"
 
     def _env(self, t):
         return {

@@ -24,6 +24,7 @@ export default function PageSensors({ sim }) {
   const mpuSub = (() => {
     if (!isReal) return "I²C · 100Hz 采样 → 1Hz 聚合";
     const mpuSrc = src.mpu6500;
+    if (mpuSrc === "real_i2c") return "I²C · /dev/i2c-1 · 0x68 · 真实 MPU-6500";
     if (mpuSrc === "mock" || mpuSrc === "unknown" || !mpuSrc) return "mock 数据 · 未接真实 MPU-6500";
     return "I²C · 100Hz 采样 → 1Hz 聚合";
   })();
@@ -60,7 +61,7 @@ export default function PageSensors({ sim }) {
           right={<span className="num" style={{ fontSize: 16, fontWeight: 600 }}>{sim.latest("vib")}</span>}>
           <TimeChart data={sim.getSeries("vib")} window={win} warn={T["mpu6500.vibration_score"].warn} danger={T["mpu6500.vibration_score"].danger} yMin={0} yMax={10} height={140} color="var(--accent)" />
         </Card>
-        <Card title="MPU-6500 · 加速度三轴" sub={isReal && (src.mpu6500 === "mock" || src.mpu6500 === "unknown" || !src.mpu6500) ? "mock 数据 · 未接入真实 MPU" : "g"}>
+        <Card title="MPU-6500 · 加速度三轴" sub={isReal ? (src.mpu6500 === "real_i2c" ? "g · 真实 MPU-6500" : (src.mpu6500 === "mock" || src.mpu6500 === "unknown" || !src.mpu6500) ? "mock 数据 · 未接入真实 MPU" : "g") : "g"}>
           <TimeChart window={win} height={140} area={false} series={[
             { name: "ax", color: "#57c1d5", data: sim.getSeries("ax") },
             { name: "ay", color: "#5d9cf5", data: sim.getSeries("ay") },
