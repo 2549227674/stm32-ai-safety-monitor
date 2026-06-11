@@ -1,5 +1,5 @@
 [Unit]
-Description=OPi5 AI Service (Qwen3-VL / RKNN)
+Description=OPi5 AI Service (Qwen3-VL Real AI with embedded worker)
 After=network-online.target
 Wants=network-online.target
 
