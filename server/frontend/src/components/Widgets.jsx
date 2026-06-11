@@ -110,6 +110,17 @@ function systemStatus(sim) {
 }
 
 /* ---------- 视频面（real MJPEG / mock 占位） ---------- */
+const StableVideoImg = React.memo(function StableVideoImg({ src, onError }) {
+  return (
+    <img
+      src={src}
+      alt="CAM-01 实时流"
+      style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+      onError={onError}
+    />
+  );
+}, (prev, next) => prev.src === next.src);
+
 function VideoSurface({ sim }) {
   const isReal = sim.mode === "real";
   const risk = sim.latest("risk");
@@ -152,12 +163,7 @@ function VideoSurface({ sim }) {
     <div className="video-wrap" style={{ aspectRatio: "16 / 9" }}>
       {/* 真实模式：MJPEG 流 */}
       {isReal && deviceOnline && cameraOk && !imgError && (
-        <img
-          src={videoSrc}
-          alt="CAM-01 实时流"
-          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-          onError={() => setImgError(true)}
-        />
+        <StableVideoImg src={videoSrc} onError={() => setImgError(true)} />
       )}
 
       {/* mock 模式：image-slot 占位 */}

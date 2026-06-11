@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -52,6 +54,9 @@ def create_app():
     init_db()
 
     notifier = EmailNotifier(get_connection)
+
+    # Start realtime cache background thread (fetches device-agent status once/sec)
+    _realtime_cache.start(os.environ.get("DEVICE_ID", "edge-opi5-001"))
 
     @app.errorhandler(RequestEntityTooLarge)
     def handle_large_file(_error):
@@ -476,62 +481,94 @@ def _build_tick(device_id):
         "latest_ai_observation": get_latest_ai_observation(device_id) if device_id else None,
         "alerts": list_alerts(device_id, 5) if device_id else [],
     }
-    # Realtime channel: pull fresh data directly from device-agent
-    tick["realtime"] = _fetch_realtime(device_id)
+    # Realtime channel: read from background cache (non-blocking)
+    tick["realtime"] = _realtime_cache.get()
     return tick
 
 
-# Cache device-agent URL to avoid DB lookup every second
-_agent_url_cache = {"url": None, "device_id": None}
+import threading as _threading
 
+class _RealtimeCache:
+    """Background thread fetches device-agent /api/status once per second.
+    SSE clients read from cache without blocking."""
 
-def _fetch_realtime(device_id):
-    """Fetch fresh sensor/metric data directly from device-agent /api/status."""
-    import requests as req
-    from time import monotonic
-    try:
-        # Resolve agent URL (cached)
-        if _agent_url_cache.get("device_id") != device_id:
-            _agent_url_cache["url"] = _get_device_agent_url(device_id)
-            _agent_url_cache["device_id"] = device_id
-        agent_url = _agent_url_cache["url"]
-        if not agent_url:
-            return None
+    def __init__(self):
+        self._data = None
+        self._ts = 0.0
+        self._lock = _threading.Lock()
+        self._agent_url = None
+        self._device_id = None
+        self._interval = float(os.environ.get("REALTIME_SSE_INTERVAL_SEC", "1"))
+        self._enabled = os.environ.get("REALTIME_SSE_ENABLED", "1") != "0"
+        self._timeout = 0.5
 
-        t0 = monotonic()
-        resp = req.get(f"{agent_url}/api/status", timeout=2)
-        latency_ms = int((monotonic() - t0) * 1000)
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        m = data.get("metrics", {})
-        sensors = m.get("sensors", {})
-        device = m.get("device", {})
-        return {
-            "ts": m.get("ts"),
-            "fetch_latency_ms": latency_ms,
-            "risk_score": m.get("risk_score"),
-            "sensors": {
-                "pir": sensors.get("safety", {}).get("pir"),
-                "flame": sensors.get("safety", {}).get("flame"),
-                "mq2": sensors.get("safety", {}).get("mq2"),
-                "vibration_score": sensors.get("mpu6500", {}).get("vibration_score"),
-                "temp_c": sensors.get("env", {}).get("temp_c"),
-                "humidity_pct": sensors.get("env", {}).get("humidity_pct"),
-                "light_lux": sensors.get("env", {}).get("light_lux"),
-            },
-            "device": {
-                "cpu_temp_c": device.get("cpu_temp_c"),
-                "mem_used_mb": device.get("mem_used_mb"),
-                "cpu_load_1m": device.get("cpu_load_1m"),
-                "disk_used_pct": device.get("disk_used_pct"),
-            },
-            "camera": data.get("camera"),
-            "ai": data.get("ai"),
-            "services": data.get("metrics", {}).get("services") if isinstance(m.get("services"), dict) else None,
-        }
-    except Exception:
-        return None
+    def start(self, device_id):
+        if not self._enabled:
+            return
+        self._device_id = device_id
+        _threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        import requests as req
+        from time import monotonic
+        while True:
+            try:
+                if self._agent_url is None:
+                    self._agent_url = _get_device_agent_url(self._device_id)
+                if not self._agent_url:
+                    time.sleep(self._interval)
+                    continue
+
+                t0 = monotonic()
+                resp = req.get(f"{self._agent_url}/api/status", timeout=self._timeout)
+                latency_ms = int((monotonic() - t0) * 1000)
+                if resp.status_code != 200:
+                    time.sleep(self._interval)
+                    continue
+
+                data = resp.json()
+                m = data.get("metrics", {})
+                sensors = m.get("sensors", {})
+                device = m.get("device", {})
+                result = {
+                    "ts": m.get("ts"),
+                    "fetch_latency_ms": latency_ms,
+                    "risk_score": m.get("risk_score"),
+                    "sensors": {
+                        "pir": sensors.get("safety", {}).get("pir"),
+                        "flame": sensors.get("safety", {}).get("flame"),
+                        "mq2": sensors.get("safety", {}).get("mq2"),
+                        "vibration_score": sensors.get("mpu6500", {}).get("vibration_score"),
+                        "temp_c": sensors.get("env", {}).get("temp_c"),
+                        "humidity_pct": sensors.get("env", {}).get("humidity_pct"),
+                        "light_lux": sensors.get("env", {}).get("light_lux"),
+                    },
+                    "device": {
+                        "cpu_temp_c": device.get("cpu_temp_c"),
+                        "mem_used_mb": device.get("mem_used_mb"),
+                        "cpu_load_1m": device.get("cpu_load_1m"),
+                        "disk_used_pct": device.get("disk_used_pct"),
+                    },
+                    "camera": data.get("camera"),
+                    "ai": data.get("ai"),
+                }
+                with self._lock:
+                    self._data = result
+                    self._ts = monotonic()
+            except Exception:
+                pass
+            time.sleep(self._interval)
+
+    def get(self):
+        with self._lock:
+            if self._data is None:
+                return None
+            age_ms = int((time.monotonic() - self._ts) * 1000)
+            result = dict(self._data)
+            result["age_ms"] = age_ms
+            return result
+
+_realtime_cache = _RealtimeCache()
 
 
 def normalize_event(payload, source):
