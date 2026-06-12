@@ -11,7 +11,10 @@ import tempfile
 import threading
 import time
 
-DEFAULT_WORKER_BINARY = "/opt/edge-ai-safety-monitor/opi5-ai/qwen3vl_worker"
+DEFAULT_WORKER_BINARY = os.environ.get(
+    "QWEN3VL_BINARY",
+    "/home/orangepi/qwen3vl_worker_build/qwen3vl_worker",
+)
 
 
 class Qwen3VLWorkerClient:
