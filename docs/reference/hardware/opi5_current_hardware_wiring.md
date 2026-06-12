@@ -12,8 +12,8 @@
 
 | 逻辑信号 | OPi5 物理脚 | GPIO 号 | 方向 | 电平/协议 | 备注 |
 |---|---|---|---|---|---|
-| I2C5 SDA | pin 3 | 47 | I2C | 3.3V | OLED 0x3C + MPU6050 0x68 |
-| I2C5 SCL | pin 5 | 46 | I2C | 3.3V | OLED 0x3C + MPU6050 0x68 |
+| I2C1 SDA | pin 16 | 59 | I2C | 3.3V | OLED 0x3C + MPU6050 0x68 |
+| I2C1 SCL | pin 18 | 58 | I2C | 3.3V | OLED 0x3C + MPU6050 0x68 |
 | Pan servo | pin 7 | 54 (PWM15) | PWM | 50Hz, 80-90° | pwmchip4 |
 | Water MOS | pin 11 | 138 | output | active HIGH | 水泵/水枪 |
 | PIR | pin 13 | 139 | input | active HIGH | HC-SR501 |
@@ -28,8 +28,8 @@
 
 | 设备 | I2C 地址 | 总线 | 状态 |
 |---|---|---|---|
-| OLED SSD1306 | 0x3C | I2C5 | 已验证 |
-| MPU6050/GY521 | 0x68 | I2C5 | 已验证 |
+| OLED SSD1306 | 0x3C | I2C1 | 已验证 |
+| MPU6050/GY521 | 0x68 | I2C1 | 已验证 |
 
 ## 供电
 

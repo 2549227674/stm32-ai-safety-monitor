@@ -62,8 +62,10 @@ class EmailNotifier:
         try:
             with open(self.CONFIG_FILE, "w") as f:
                 json.dump(cfg, f, indent=2)
-        except Exception:
-            pass
+            return True
+        except Exception as e:
+            print(f"[email] failed to save config: {e}")
+            return False
 
     def _init_delivery_log(self):
         with self._db() as conn:
@@ -77,9 +79,15 @@ class EmailNotifier:
                     subject TEXT,
                     status TEXT NOT NULL,
                     error TEXT,
-                    raw_json TEXT
+                    raw_json TEXT,
+                    dedupe_key TEXT DEFAULT ''
                 )
             """)
+            # Migration: add dedupe_key column if missing
+            try:
+                conn.execute("SELECT dedupe_key FROM notification_log LIMIT 1")
+            except Exception:
+                conn.execute("ALTER TABLE notification_log ADD COLUMN dedupe_key TEXT DEFAULT ''")
 
     def get_settings(self):
         return {
@@ -113,7 +121,7 @@ class EmailNotifier:
             self.cooldown_seconds = int(settings["cooldown_seconds"])
         if "use_tls" in settings:
             self.use_tls = bool(settings["use_tls"])
-        self._save_config()
+        return self._save_config()
 
     def send_test_email(self):
         if not self._can_send():
@@ -134,6 +142,7 @@ class EmailNotifier:
         level = alert.get("level", "info")
         metric = alert.get("metric", "")
         message = alert.get("message", "")
+        dedupe_key = f"{device_id}:{metric}:{level}"
         if not self._should_send(device_id, metric, level):
             return
         subject = f"[Safety Monitor] {level.upper()} Alert: {metric or 'General'}"
@@ -146,7 +155,7 @@ class EmailNotifier:
         )
         threading.Thread(
             target=self._send,
-            args=(subject, body, alert_id),
+            args=(subject, body, alert_id, dedupe_key),
             daemon=True,
         ).start()
 
@@ -161,16 +170,16 @@ class EmailNotifier:
         return self.enabled and self.smtp_host and self.smtp_user and self.alert_email_to
 
     def _should_send(self, device_id, metric, level):
-        key = f"{device_id}:{metric}:{level}"
+        dedupe_key = f"{device_id}:{metric}:{level}"
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=self.cooldown_seconds)).isoformat()
         with self._db() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM notification_log WHERE raw_json LIKE ? AND timestamp >= ? AND status='sent'",
-                (f"%{key}%", cutoff),
+                "SELECT COUNT(*) as cnt FROM notification_log WHERE dedupe_key=? AND timestamp >= ? AND status='sent'",
+                (dedupe_key, cutoff),
             ).fetchone()
         return row["cnt"] == 0 if row else True
 
-    def _send(self, subject, body, alert_id):
+    def _send(self, subject, body, alert_id, dedupe_key=""):
         now = datetime.now(timezone.utc).isoformat()
         msg = MIMEMultipart()
         msg["From"] = self.smtp_from
@@ -186,16 +195,16 @@ class EmailNotifier:
             server.login(self.smtp_user, self.smtp_password)
             server.sendmail(self.smtp_from, [self.alert_email_to], msg.as_string())
             server.quit()
-            self._log(alert_id, "email", self.alert_email_to, subject, "sent", None, body)
+            self._log(alert_id, "email", self.alert_email_to, subject, "sent", None, body, dedupe_key)
             return {"ok": True, "status": "sent"}
         except Exception as e:
-            self._log(alert_id, "email", self.alert_email_to, subject, "failed", str(e), body)
+            self._log(alert_id, "email", self.alert_email_to, subject, "failed", str(e), body, dedupe_key)
             return {"ok": False, "error": str(e)}
 
-    def _log(self, alert_id, channel, recipient, subject, status, error, raw):
+    def _log(self, alert_id, channel, recipient, subject, status, error, raw, dedupe_key=""):
         now = datetime.now(timezone.utc).isoformat()
         with self._db() as conn:
             conn.execute(
-                "INSERT INTO notification_log (timestamp, alert_id, channel, recipient, subject, status, error, raw_json) VALUES (?,?,?,?,?,?,?,?)",
-                (now, alert_id, channel, recipient, subject, status, error, json.dumps({"body": raw})),
+                "INSERT INTO notification_log (timestamp, alert_id, channel, recipient, subject, status, error, raw_json, dedupe_key) VALUES (?,?,?,?,?,?,?,?,?)",
+                (now, alert_id, channel, recipient, subject, status, error, json.dumps({"body": raw}), dedupe_key),
             )

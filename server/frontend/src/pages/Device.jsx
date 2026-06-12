@@ -7,6 +7,7 @@ export default function PageDevice({ sim }) {
   const h = dev.health || {};
   const off = sim.scenario === "offline";
   const deg = sim.scenario === "degraded";
+  const isReal = sim.mode === "real";
   const T = sim.thresholds;
 
   const services = [
@@ -14,7 +15,13 @@ export default function PageDevice({ sim }) {
     { unit: "opi5-ai-qwen3vl.service", desc: "Qwen3-VL 2B 推理服务 (:8080)", state: dev.services ? dev.services["opi5-ai-qwen3vl"] : "unknown" },
     { unit: "opi5-safetyd.service", desc: "本地安全闭环（传感器→执行器）", state: dev.services ? dev.services["opi5-safetyd"] : "unknown" },
   ];
-  const stTag = (s) => s === "running" ? <Tag level="ok">running</Tag> : s === "failed" ? <Tag level="danger">failed</Tag> : <Tag>unknown</Tag>;
+  const stTag = (s) => {
+    if (s === "running") return <Tag level="ok">running</Tag>;
+    if (s === "active") return <Tag level="ok">active</Tag>;
+    if (s === "failed") return <Tag level="danger">failed</Tag>;
+    if (s === "unknown") return <Tag level="warn">unknown / service not found or not running</Tag>;
+    return <Tag level="warn">{s || "unknown"}</Tag>;
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} data-screen-label="设备健康">
@@ -30,10 +37,10 @@ export default function PageDevice({ sim }) {
               <dt>contract</dt><dd>v{dev.contract_version || "—"}</dd>
               <dt>运行时长</dt><dd>{off ? "—" : fmtUptime(dev.uptime_s)}</dd>
               <dt>最后心跳</dt><dd style={{ color: off ? "var(--danger)" : undefined }}>{timeAgo(dev.last_seen_at)}{off ? "（丢失）" : ""}</dd>
-              <dt>摄像头</dt><dd>{dev.camera === "online" ? "CAM-01 在线" : "离线"}</dd>
+              <dt>摄像头</dt><dd>{dev.camera_status === "online" ? "CAM-01 在线" : dev.camera_status === "mock" ? "模拟摄像头" : "离线"}</dd>
             </dl>
           </Card>
-          <Card title="systemd 服务" sub="心跳随带状态" flush>
+          <Card title="systemd 服务" sub="心跳随带 systemctl is-active 状态" flush>
             <table className="table">
               <tbody>
                 {services.map((s) => (
@@ -44,6 +51,11 @@ export default function PageDevice({ sim }) {
                 ))}
               </tbody>
             </table>
+            {isReal && services.some(s => s.state === "unknown") && (
+              <p className="t3" style={{ margin: "8px 16px 12px", fontSize: 11, lineHeight: 1.6 }}>
+                {'诊断：'}<code>{'systemctl is-active opi5-ai-qwen3vl.service opi5-safetyd.service'}</code>
+              </p>
+            )}
           </Card>
           {deg && (
             <div className="banner degraded">

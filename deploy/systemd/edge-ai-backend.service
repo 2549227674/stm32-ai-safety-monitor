@@ -1,0 +1,18 @@
+[Unit]
+Description=Edge AI Safety Monitor Backend (Flask + React static)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orangepi
+WorkingDirectory=/opt/edge-ai-safety-monitor/server/backend
+EnvironmentFile=-/etc/edge-ai-safety-monitor.env
+ExecStart=/usr/bin/python3 app.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/edge-ai-backend.log
+StandardError=append:/var/log/edge-ai-backend.log
+
+[Install]
+WantedBy=multi-user.target

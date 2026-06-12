@@ -52,6 +52,8 @@
 | GET | `/api/video/stream` | 视频流代理 |
 | GET | `/api/video/snapshot.jpg` | 快照代理 |
 
+> Flask 视频代理地址解析优先级：`OPI5_DEVICE_AGENT_URL` 环境变量 → heartbeat `agent_url` → heartbeat `ip + agent_port`。ip 或 agent_url 为 unknown/null/空时返回 503 JSON（不返回假 JPEG）。
+
 ### SSE
 
 | 方法 | 路径 | 说明 |
@@ -66,6 +68,14 @@
 | PUT | `/api/notification/settings` | 更新通知配置 |
 | POST | `/api/notification/test-email` | 测试邮件 |
 | GET | `/api/notification/logs` | 通知日志 |
+
+通知机制说明：
+
+- `notification_log` 表包含 `dedupe_key` 字段（格式：`device_id:metric:level`）
+- cooldown 判断依据：`dedupe_key + timestamp + status='sent'`
+- 配置持久化到 `notification_config.json`，重启 Flask 后仍可读取
+- `smtp_password` 不回传前端（`get_settings` 不返回密码字段）
+- `_save_config` 失败时 `PUT /api/notification/settings` 返回 `warning` 字段
 
 ### Legacy（保持兼容）
 
@@ -189,19 +199,68 @@ Content-Type：`multipart/form-data`
 
 接口：`POST http://<BACKEND_HOST>:5000/api/devices/heartbeat`
 
+当前已实现字段：
+
 ```json
 {
-  "device_id": "labbox_001",
+  "device_id": "edge-opi5-001",
   "timestamp": "2026-06-10T12:00:00Z",
+  "agent_version": "0.2.0",
+  "ip": "192.168.1.100",
+  "agent_url": "http://192.168.1.100:8090",
+  "agent_port": 8090,
+  "uptime_s": 3600.5,
+  "online": true,
   "services": {
-    "safetyd": "running",
-    "ai_service": "running",
-    "device_agent": "running"
+    "device_agent": "running",
+    "opi5-ai-qwen3vl": "active",
+    "opi5-safetyd": "active"
   },
-  "video_available": true,
-  "video_url": "http://127.0.0.1:5000/api/video/stream?device_id=labbox_001"
+  "health": {
+    "cpu_temp_c": 47.3,
+    "mem_used_mb": 1024,
+    "mem_total_mb": 16384,
+    "cpu_load_1m": 0.5,
+    "disk_used_pct": 35.2
+  },
+  "ai": {
+    "ok": true,
+    "model_ready": true,
+    "mode": "qwen3vl"
+  },
+  "camera": {
+    "status": "online",
+    "mode": "real",
+    "available": true,
+    "device": "/dev/video0",
+    "width": 1280,
+    "height": 720,
+    "fps": 12,
+    "mock": false
+  },
+  "camera_status": "online",
+  "video_mode": "real",
+  "video_available": true
 }
 ```
+
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `agent_url` | string\|null | device-agent 可达 URL；ip 为 unknown 时为 null |
+| `agent_port` | int | device-agent 端口，默认 8090 |
+| `camera` | object | 摄像头完整状态对象 |
+| `camera.status` | string | `"online"` / `"mock"` / `"offline"` / `"unknown"` |
+| `camera.mode` | string | `"real"` / `"mock"` / `"offline"` |
+| `camera.available` | bool | 视频是否可用 |
+| `camera.device` | string\|null | 设备路径如 `/dev/video0`，mock 时为 null |
+| `camera.mock` | bool | 是否为 mock 模式 |
+| `camera_status` | string | 顶层快捷字段，同 `camera.status` |
+| `video_mode` | string | 顶层快捷字段，同 `camera.mode` |
+| `video_available` | bool | 顶层快捷字段，同 `camera.available` |
+
+> Flask 视频代理通过以下优先级定位 device-agent：`OPI5_DEVICE_AGENT_URL` 环境变量 → `agent_url` → `ip + agent_port`。ip 或 agent_url 为 unknown/null/空时返回 503。
 
 ## 7.7 device-agent 遥测批量上报
 
@@ -209,18 +268,58 @@ Content-Type：`multipart/form-data`
 
 ```json
 {
-  "device_id": "labbox_001",
-  "series": [
+  "device_id": "edge-opi5-001",
+  "window": {
+    "start": "2026-06-10T12:00:00Z",
+    "end": "2026-06-10T12:00:30Z",
+    "sample_count": 30,
+    "sample_interval_ms": 1000
+  },
+  "samples": [
     {
-      "timestamp": "2026-06-10T12:00:00Z",
-      "sensors": {"pir": 0, "flame": 0, "mq2": 0},
-      "state": "NORMAL",
-      "risk_score": 0,
-      "soc_temp": 47.3
+      "ts": "2026-06-10T12:00:00Z",
+      "risk_score": 1.5,
+      "sensors": {
+        "mpu6500": {"accel_x": 0.1, "accel_y": -0.2, "accel_z": 9.8, "gyro_x": 0.01, "gyro_y": -0.02, "gyro_z": 0.0, "vibration_score": 0.05},
+        "env": {"temp_c": 25.3, "humidity_pct": 60.0, "light_lux": 300},
+        "safety": {"pir": 0, "flame": 0, "mq2": 0}
+      },
+      "device": {
+        "cpu_temp_c": 52.3,
+        "mem_used_mb": 5400,
+        "mem_total_mb": 15876,
+        "cpu_load_1m": 1.2,
+        "disk_used_pct": 41.2
+      },
+      "sensor_scores": {"smoke": 0.2, "flame": 0.1, "mpu6500_vibration": 1.1, "cpu_temp": 2.0}
     }
-  ]
+  ],
+  "summary": {
+    "risk_score": {"min": 0.0, "avg": 0.0, "max": 0.0, "latest": 0.0},
+    "cpu_temp_c": {"min": 46.5, "avg": 47.1, "max": 48.2, "latest": 47.3},
+    "mpu6500_vibration": {"min": 0.02, "avg": 0.04, "max": 0.08, "latest": 0.05}
+  }
 }
 ```
+
+> 系统指标（cpu_temp_c、mem_used_mb 等）嵌套在 `sample.device` 下，不在顶层。
+
+### Telemetry Metric Alias
+
+`GET /api/telemetry/series?metric=` 支持以下别名，查询时自动映射到 canonical metric：
+
+| 用户传入 metric | 实际查询 metric |
+|---|---|
+| `cpu_temp_c` | `device.cpu_temp_c` |
+| `mem_used_mb` | `device.mem_used_mb` |
+| `smoke_score` / `smoke` | `sensor_scores.smoke` |
+| `flame_score` | `sensor_scores.flame` |
+| `mpu6500_vibration` / `vibration_score` | `mpu6500.vibration_score` |
+| `pir` | `safety.pir` |
+| `flame` | `safety.flame` |
+| `mq2` | `safety.mq2` |
+
+response.metric 保留用户传入值，实际查询用 canonical metric。threshold 获取也兼容 alias。
 
 ## 7.8 device-agent AI observation 上报
 
@@ -228,14 +327,25 @@ Content-Type：`multipart/form-data`
 
 ```json
 {
-  "device_id": "labbox_001",
+  "device_id": "edge-opi5-001",
   "timestamp": "2026-06-10T12:00:00Z",
+  "window_sec": 30,
+  "model": {
+    "name": "qwen3-vl-2b",
+    "backend": "rknn-llm",
+    "mode": "worker",
+    "model_ready": true
+  },
+  "run_metrics": {},
+  "risk_hint": 0,
   "summary": "当前环境正常，未检测到异常。",
   "full_text": "画面中未发现人员或异常物体...",
-  "risk_hint": 0,
-  "objects": [],
-  "run_metrics": {"latency_ms": 86},
-  "model": "qwen3-vl-2b"
+  "labels": [],
+  "input": {
+    "telemetry_summary": {}
+  },
+  "ok": true,
+  "error": null
 }
 ```
 

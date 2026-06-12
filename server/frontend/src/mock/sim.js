@@ -99,6 +99,10 @@
     videoOnline: false,
     videoError: null,
     cameraStatus: "unknown",
+    _realtimeTs: null,
+    _realtimeAge: 0,
+    sensorsSource: { safety: "unknown", mpu6500: "unknown", env: "unknown" },
+    realtimeWarnings: [],
   };
   METRICS.forEach((m) => (sim.buf[m] = []));
 
@@ -168,18 +172,26 @@
   function normalizeDevice(dev) {
     if (!dev) return null;
     const s = dev.status || {};
-    const hb = s.heartbeat || {};
-    const h = s.health || dev.health || {};
-    const svcs = s.services || dev.services || {};
-    const aiInfo = s.ai || dev.ai || {};
+    const hb = s.heartbeat || s || {};
+    const h = hb.health || s.health || dev.health || {};
+    const svcs = hb.services || s.services || dev.services || {};
+    const aiInfo = hb.ai || s.ai || dev.ai || {};
+
+    // Camera fields - could be object or string
+    const rawCam = hb.camera || s.camera || dev.camera;
+    const cam = typeof rawCam === "object" && rawCam !== null ? rawCam : {};
+    const cameraStatus = hb.camera_status || s.camera_status || dev.camera_status || cam.status || (typeof rawCam === "string" ? rawCam : "unknown");
+    const videoMode = hb.video_mode || s.video_mode || dev.video_mode || cam.mode || "unknown";
+    const videoAvail = hb.video_available != null ? hb.video_available : s.video_available != null ? s.video_available : dev.video_available != null ? dev.video_available : cam.available;
+
     return {
-      device_id: dev.device_id,
+      device_id: dev.device_id || hb.device_id,
       online: dev.online != null ? dev.online : (dev.last_seen_at ? (nowSec() - new Date(dev.last_seen_at).getTime() / 1000 < 15) : false),
       last_seen_at: dev.last_seen_at,
-      agent_version: dev.agent_version || hb.agent_version || "—",
-      contract_version: dev.contract_version || hb.contract_version || "—",
-      ip: dev.ip || hb.ip || "—",
-      uptime_s: dev.uptime_s || hb.uptime_s || null,
+      agent_version: hb.agent_version || dev.agent_version || "—",
+      contract_version: hb.contract_version || dev.contract_version || "—",
+      ip: hb.ip || dev.ip || "—",
+      uptime_s: hb.uptime_s || dev.uptime_s || null,
       health: {
         cpu_temp_c: h.cpu_temp_c ?? null,
         mem_used_mb: h.mem_used_mb ?? null,
@@ -198,7 +210,12 @@
         model_ready: aiInfo.model_ready || false,
         error: aiInfo.error || null,
       },
-      camera: dev.camera || s.camera || "unknown",
+      agent_url: hb.agent_url || s.agent_url || dev.agent_url || null,
+      agent_port: hb.agent_port || s.agent_port || dev.agent_port || 8090,
+      camera: cam,
+      camera_status: cameraStatus,
+      video_mode: videoMode,
+      video_available: !!videoAvail,
     };
   }
 
@@ -244,6 +261,22 @@
     return { t, v };
   }
 
+  function normalizeNotificationLog(l) {
+    if (!l) return null;
+    const ts = l.timestamp ? Math.floor(new Date(l.timestamp).getTime() / 1000) : (l.ts || nowSec());
+    return {
+      id: l.id || ("ntf_" + Math.random().toString(36).slice(2)),
+      ts,
+      alert_id: l.alert_id || "—",
+      channel: l.channel || "email",
+      recipient: l.recipient || "",
+      subject: l.subject || "",
+      status: l.status || "unknown",
+      error: l.error || null,
+      raw_json: l.raw_json || null,
+    };
+  }
+
   /* ============================================================
      真实数据模式：连接后端 API
      ============================================================ */
@@ -264,7 +297,8 @@
         sim.mode = "real";
         sim._realDeviceId = dev.device_id;
         sim.device = dev;
-        sim.cameraStatus = dev.camera;
+        sim.cameraStatus = dev.camera_status;
+        sim.videoOnline = dev.video_available || dev.camera_status === "online" || dev.camera_status === "mock";
         pushEvent("info", "system", `真实设备已连接: ${dev.device_id}`, nowSec());
         console.log("[EdgeSim] 真实设备已连接:", dev.device_id);
 
@@ -283,13 +317,16 @@
   }
 
   async function loadInitialData(deviceId) {
+    const t = nowSec();
+
     // 加载设备详情
     try {
       const res = await fetch(`/api/devices/${deviceId}`);
       const data = await res.json();
       if (data.ok && data.device) {
         sim.device = normalizeDevice(data.device);
-        sim.cameraStatus = sim.device.camera;
+        sim.cameraStatus = sim.device.camera_status;
+        sim.videoOnline = sim.device.video_available || sim.device.camera_status === "online" || sim.device.camera_status === "mock";
         sim._lastSeen = sim.device.last_seen_at ? new Date(sim.device.last_seen_at).getTime() / 1000 : nowSec();
       }
     } catch (e) { /* ignore */ }
@@ -310,14 +347,53 @@
       }
     } catch (e) { /* ignore */ }
 
-    // 加载最新 AI 观察
+    // 加载历史事件（最近 100 条）
     try {
-      const res = await fetch(`/api/ai/observations/latest?device_id=${deviceId}`);
+      const res = await fetch(`/api/events?device_id=${deviceId}&limit=100`);
       const data = await res.json();
-      if (data.ok && data.observation) {
-        sim.ai.unshift(normalizeObservation(data.observation));
+      console.log("[EdgeSim] history events:", data.count, "ok:", data.ok);
+      if (data.ok && data.events && data.events.length) {
+        const existingIds = new Set(sim.events.map((e) => e.id));
+        let added = 0;
+        for (const ev of data.events.reverse()) {
+          const level = ev.risk_score >= 7 ? "danger" : ev.risk_score >= 4 ? "warn" : "info";
+          const id = ev.event_id || ev.id || Math.random().toString(36).slice(2);
+          if (existingIds.has(id)) continue;
+          const eventSource = ev.source || ev.type || "event";
+          const patrol = ev.patrol || null;
+          sim.events.push({
+            ts: t,
+            level,
+            source: eventSource,
+            msg: patrol ? patrol.overall_summary || `舵机巡检 · ${patrol.angles?.length || 0} 角度 · risk ${ev.risk_score}` : `${ev.state || ""} · risk ${ev.risk_score}`,
+            id,
+            patrol,
+          });
+          added++;
+        }
+        console.log("[EdgeSim] history events added:", added, "total:", sim.events.length);
+        if (sim.events.length > 250) sim.events.splice(0, sim.events.length - 250);
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { console.warn("[EdgeSim] history events error:", e); }
+
+    // 加载 AI 观察历史（最近 24 条）
+    try {
+      const res = await fetch(`/api/ai/observations?device_id=${deviceId}&limit=24`);
+      const data = await res.json();
+      console.log("[EdgeSim] history ai:", data.count, "ok:", data.ok);
+      if (data.ok && data.observations && data.observations.length) {
+        const existingIds = new Set(sim.ai.map((o) => o.id));
+        for (const raw of data.observations) {
+          const obs = normalizeObservation(raw);
+          if (obs && !existingIds.has(obs.id)) {
+            sim.ai.push(obs);
+          }
+        }
+        sim.ai.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        if (sim.ai.length > 24) sim.ai.length = 24;
+        console.log("[EdgeSim] history ai total:", sim.ai.length);
+      }
+    } catch (e) { console.warn("[EdgeSim] history ai error:", e); }
 
     // 加载告警
     try {
@@ -327,6 +403,26 @@
         sim.alerts = data.alerts.map(normalizeAlert).filter(Boolean);
       }
     } catch (e) { /* ignore */ }
+
+    // 加载遥测历史（最近 10 分钟）
+    const telemetryMetrics = [
+      { metric: "risk_score", key: "risk" },
+      { metric: "cpu_temp_c", key: "cpu_temp" },
+      { metric: "mpu6500.vibration_score", key: "vib" },
+      { metric: "pir", key: "pir" },
+      { metric: "flame", key: "flame" },
+      { metric: "mq2", key: "mq2" },
+      { metric: "smoke", key: "smoke_score" },
+    ];
+    await Promise.all(telemetryMetrics.map(async ({ metric, key }) => {
+      try {
+        const res = await fetch(`/api/telemetry/series?device_id=${deviceId}&metric=${metric}&seconds=600`);
+        const data = await res.json();
+        if (data.ok && data.points) {
+          data.points.map(normalizePoint).filter(Boolean).forEach((p) => push(key, p.t, p.v));
+        }
+      } catch (e) { /* ignore */ }
+    }));
 
     // 加载通知设置
     try {
@@ -342,7 +438,7 @@
       const res = await fetch('/api/notification/logs?limit=20');
       const data = await res.json();
       if (data.ok && data.logs) {
-        sim.notif.logs = data.logs;
+        sim.notif.logs = data.logs.map(normalizeNotificationLog).filter(Boolean);
       }
     } catch (e) { /* ignore */ }
   }
@@ -376,32 +472,68 @@
     // 更新设备状态
     if (tick.device) {
       sim.device = normalizeDevice(tick.device);
-      sim.cameraStatus = sim.device.camera;
+      sim.cameraStatus = sim.device.camera_status;
+      sim.videoOnline = sim.device.video_available || sim.device.camera_status === "online" || sim.device.camera_status === "mock";
       if (sim.device.last_seen_at) {
         sim._lastSeen = new Date(sim.device.last_seen_at).getTime() / 1000;
       }
     }
 
-    // 更新最新事件
+    // 实时通道：优先使用 device-agent 直接获取的传感器数据
+    if (tick.realtime) {
+      const rt = tick.realtime;
+      const rtSensors = rt.sensors || {};
+      if (rt.risk_score != null) push("risk", t, rt.risk_score);
+      if (rtSensors.pir != null) push("pir", t, rtSensors.pir);
+      if (rtSensors.flame != null) push("flame", t, rtSensors.flame);
+      if (rtSensors.mq2 != null) push("mq2", t, rtSensors.mq2);
+      if (rtSensors.vibration_score != null) push("vib", t, rtSensors.vibration_score);
+      if (rtSensors.accel_x != null) push("ax", t, rtSensors.accel_x);
+      if (rtSensors.accel_y != null) push("ay", t, rtSensors.accel_y);
+      if (rtSensors.accel_z != null) push("az", t, rtSensors.accel_z);
+      if (rtSensors.temp_c != null) push("temp", t, rtSensors.temp_c);
+      if (rtSensors.humidity_pct != null) push("hum", t, rtSensors.humidity_pct);
+      if (rtSensors.light_lux != null) push("lux", t, rtSensors.light_lux);
+      const rtDev = rt.device || {};
+      if (rtDev.cpu_temp_c != null) push("cpu_temp", t, rtDev.cpu_temp_c);
+      if (rtDev.mem_used_mb != null) push("mem_used", t, rtDev.mem_used_mb);
+      if (rtDev.cpu_load_1m != null) push("load", t, rtDev.cpu_load_1m);
+      if (rtDev.disk_used_pct != null) push("disk", t, rtDev.disk_used_pct);
+      sim._realtimeTs = rt.ts || null;
+      sim._realtimeAge = rt.fetch_latency_ms || 0;
+      // Track sensor data sources
+      if (rt.sensors_source) {
+        sim.sensorsSource = rt.sensors_source;
+      }
+      sim.realtimeWarnings = rt.warnings || [];
+    }
+
+    // 更新最新事件（保留用于事件流展示）
     if (tick.latest_event) {
+      const le = tick.latest_event;
+      const leSource = le.source || le.type || "event";
+      const lePatrol = le.patrol || null;
       const ev = {
         ts: t,
-        level: tick.latest_event.risk_score >= 7 ? "danger" : tick.latest_event.risk_score >= 4 ? "warn" : "info",
-        source: tick.latest_event.type || "event",
-        msg: `${tick.latest_event.state || ""} · risk ${tick.latest_event.risk_score}`,
-        id: tick.latest_event.id || Math.random().toString(36).slice(2),
+        level: le.risk_score >= 7 ? "danger" : le.risk_score >= 4 ? "warn" : "info",
+        source: leSource,
+        msg: lePatrol ? lePatrol.overall_summary || `舵机巡检 · risk ${le.risk_score}` : `${le.state || ""} · risk ${le.risk_score}`,
+        id: le.id || le.event_id || Math.random().toString(36).slice(2),
+        patrol: lePatrol,
       };
       if (!sim.events.length || sim.events[0].msg !== ev.msg) {
         sim.events.unshift(ev);
         if (sim.events.length > 250) sim.events.pop();
       }
 
-      // 从事件中提取传感器数据
-      const s = tick.latest_event.sensors || {};
-      if (s.pir != null) push("pir", t, s.pir);
-      if (s.flame != null) push("flame", t, s.flame);
-      if (s.mq2 != null) push("mq2", t, s.mq2);
-      if (tick.latest_event.risk_score != null) push("risk", t, tick.latest_event.risk_score);
+      // 从事件中提取传感器数据（仅在 realtime 通道无数据时作为 fallback）
+      if (!tick.realtime) {
+        const s = tick.latest_event.sensors || {};
+        if (s.pir != null) push("pir", t, s.pir);
+        if (s.flame != null) push("flame", t, s.flame);
+        if (s.mq2 != null) push("mq2", t, s.mq2);
+        if (tick.latest_event.risk_score != null) push("risk", t, tick.latest_event.risk_score);
+      }
     }
 
     // 更新 AI 观察
@@ -427,11 +559,8 @@
   }
 
   function startPolling(deviceId) {
-    // 每 10 秒轮询遥测和设备状态
+    // 历史数据补全：30 秒拉一次 telemetry series（实时数据走 SSE realtime 通道）
     sim._pollTimer = setInterval(async () => {
-      const t = nowSec();
-
-      // 轮询多个遥测指标
       const metrics = ["risk_score", "cpu_temp_c", "mpu6500.vibration_score"];
       for (const metric of metrics) {
         try {
@@ -444,33 +573,11 @@
         } catch (e) { /* ignore */ }
       }
 
-      // 轮询设备状态
-      try {
-        const res = await fetch(`/api/devices/${deviceId}`);
-        const data = await res.json();
-        if (data.ok && data.device) {
-          sim.device = normalizeDevice(data.device);
-          sim.cameraStatus = sim.device.camera;
-          const h = sim.device.health;
-          if (h.cpu_temp_c != null) push("cpu_temp", t, h.cpu_temp_c);
-          if (h.mem_used_mb != null) push("mem_used", t, h.mem_used_mb);
-          if (h.cpu_load_1m != null) push("load", t, h.cpu_load_1m);
-          if (h.disk_used_pct != null) push("disk", t, h.disk_used_pct);
-        }
-      } catch (e) { /* ignore */ }
-
-      // 检查视频流状态
-      try {
-        const res = await fetch(`/api/video/snapshot.jpg?device_id=${deviceId}`, { method: "HEAD", signal: AbortSignal.timeout(3000) });
-        sim.videoOnline = res.ok;
-        sim.videoError = res.ok ? null : `HTTP ${res.status}`;
-      } catch (e) {
-        sim.videoOnline = false;
-        sim.videoError = e.message;
-      }
+      // 视频状态从设备心跳获取，不再单独 HEAD snapshot 探测
+      sim.videoError = null;
 
       emit();
-    }, 10000);
+    }, 30000);
   }
 
   /* ============================================================
@@ -678,7 +785,12 @@
         : deg
           ? { ok: false, mode: "qwen3vl", model_ready: false, error: "connection refused (:8080)" }
           : { ok: true, mode: "qwen3vl", model_ready: true, contract_version: "1.1", models: [{ name: "qwen3-vl-2b", backend: "rknn-llm", version: "local" }] },
-      camera: off ? "offline" : "online",
+      agent_url: null,
+      agent_port: 8090,
+      camera: { status: off ? "offline" : "mock", mode: off ? "offline" : "mock", available: !off, device: null, width: 1280, height: 720, fps: 12, mock: true },
+      camera_status: off ? "offline" : "mock",
+      video_mode: off ? "offline" : "mock",
+      video_available: !off,
       backend: "ok",
       contract_version: "1.1",
     };
@@ -706,6 +818,10 @@
     return b.slice(i);
   };
   sim.latest = latest;
+  sim.realtimeAge = function () {
+    if (!sim._realtimeTs) return Infinity;
+    return nowSec() - new Date(sim._realtimeTs).getTime() / 1000;
+  };
 
   /* ---------------- seed mock history ---------------- */
   function seedHistory() {

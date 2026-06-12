@@ -33,15 +33,21 @@ export default function PageAlerts({ sim }) {
           <table className="table">
             <thead><tr><th style={{ width: 96 }}>时间</th><th style={{ width: 72 }}>级别</th><th style={{ width: 90 }}>来源</th><th>内容</th>{tab === "alerts" && <th style={{ width: 86 }}>邮件</th>}</tr></thead>
             <tbody>
-              {filtered.slice(0, 60).map((e) => (
+              {filtered.slice(0, 60).map((e) => {
+                const isPatrol = e.source === "patrol";
+                const displayMsg = isPatrol && e.patrol
+                  ? `舵机巡检 · ${e.patrol.angles?.map(a => a + "°").join(" / ") || ""} · 最高风险 ${e.patrol.max_risk_hint ?? "?"} · ${e.patrol.overall_summary || ""}`
+                  : e.msg;
+                return (
                 <tr key={e.id}>
                   <td className="mono" style={{ fontSize: 11.5, color: "var(--text-3)", whiteSpace: "nowrap" }}>{fmtTime(e.ts)}</td>
                   <td><Tag level={e.level === "danger" ? "danger" : e.level === "warn" ? "warn" : "info"}>{LEVEL_LABEL[e.level]}</Tag></td>
-                  <td className="mono" style={{ fontSize: 11.5 }}>{e.source || e.metric || "—"}</td>
-                  <td style={{ color: e.level === "danger" ? "#efb6b8" : undefined }}>{e.msg}</td>
+                  <td className="mono" style={{ fontSize: 11.5 }}>{isPatrol ? <Tag level="info">巡检</Tag> : (e.source || e.metric || "—")}</td>
+                  <td style={{ color: e.level === "danger" ? "#efb6b8" : undefined }}>{displayMsg}</td>
                   {tab === "alerts" && <td>{e.email ? <NotifStatusTag status={e.email.status} /> : <span className="t3 mono" style={{ fontSize: 11 }}>—</span>}</td>}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         ) : <Empty icon="✓">{tab === "alerts" ? "当前没有告警 — 系统运行正常" : "暂无事件"}</Empty>}

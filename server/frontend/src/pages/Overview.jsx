@@ -7,10 +7,17 @@ export default function PageOverview({ sim, nav }) {
   const st = systemStatus(sim);
   const risk = sim.latest("risk");
   const dev = sim.device || {};
+  const isReal = sim.mode === "real";
   const ai = sim.ai.find((o) => o.ok);
-  const offline = sim.scenario === "offline";
+  const offline = isReal ? !dev.online : sim.scenario === "offline";
+  const deg = isReal ? (dev.ai && !dev.ai.ok && !dev.ai.model_ready) : sim.scenario === "degraded";
   const T = sim.thresholds;
   const dangerAlerts = sim.alerts.filter((a) => a.level === "danger").slice(0, 1);
+
+  // Real mode: check if AI observation is stale
+  const now = Math.floor(Date.now() / 1000);
+  const aiTs = ai ? (typeof ai.timestamp === "number" ? ai.timestamp : new Date(ai.timestamp).getTime() / 1000) : 0;
+  const stale = isReal && ai && (now - aiTs) > 90;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} data-screen-label="总览">
@@ -37,7 +44,7 @@ export default function PageOverview({ sim, nav }) {
       )}
       <Card flush title="设施全貌" sub="数字孪生 · 上帝视角"
         right={<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span className="t3 mono" style={{ fontSize: 11 }}>{sim.scenario === "offline" ? "快照" : "实时"}</span>
+          <span className="t3 mono" style={{ fontSize: 11 }}>{offline ? "快照" : "实时"}</span>
           <button className="btn ghost" onClick={() => nav("live")}>进入巡检 →</button>
         </div>}>
         <IsoScene sim={sim} />
@@ -45,8 +52,8 @@ export default function PageOverview({ sim, nav }) {
       <div className="status-strip">
         <div className="status-cell"><span className="lbl">系统状态</span><span className="val"><Pill level={st.pill} blink={st.blink}>{st.label}</Pill></span></div>
         <div className="status-cell"><span className="lbl">风险分数</span><span className="val num" style={{ color: riskColor(riskLevel(risk)), fontSize: 17 }}>{offline ? "—" : risk != null ? risk.toFixed(1) : "—"}<span className="sm">/10</span></span></div>
-        <div className="status-cell"><span className="lbl">AI 模型</span><span className="val" style={{ fontSize: 12.5 }}>{offline ? <Tag>未知</Tag> : sim.scenario === "degraded" ? <Tag level="degraded">mock 降级</Tag> : <Tag level="ok">qwen3-vl-2b</Tag>}<span className="sm">{!offline && sim.scenario !== "degraded" ? "RKNN·NPU" : ""}</span></span></div>
-        <div className="status-cell"><span className="lbl">最近 AI 观察</span><span className="val num" style={{ fontSize: 13 }}>{ai ? timeAgo(ai.timestamp) : "—"}</span></div>
+        <div className="status-cell"><span className="lbl">AI 模型</span><span className="val" style={{ fontSize: 12.5 }}>{offline ? <Tag>未知</Tag> : deg ? <Tag level="degraded">mock 降级</Tag> : <Tag level="ok">qwen3-vl-2b</Tag>}<span className="sm">{!offline && !deg ? "RKNN·NPU" : ""}</span></span></div>
+        <div className="status-cell"><span className="lbl">最近 AI 观察</span><span className="val num" style={{ fontSize: 13 }}>{ai && !stale ? timeAgo(ai.timestamp) : isReal ? "—" : "—"}</span></div>
         <div className="status-cell"><span className="lbl">设备心跳</span><span className="val num" style={{ fontSize: 13, color: offline ? "var(--danger)" : undefined }}>{offline ? "丢失 " + timeAgo(dev.last_seen_at) : timeAgo(dev.last_seen_at)}</span></div>
         <div className="status-cell"><span className="lbl">CPU 温度</span><span className="val num" style={{ fontSize: 13, color: sim.latest("cpu_temp") >= T.cpu_temp_c.warn ? "var(--warn)" : undefined }}>{sim.latest("cpu_temp")}°C</span></div>
       </div>
@@ -59,10 +66,6 @@ export default function PageOverview({ sim, nav }) {
           <Card title="最近 AI 观察" sub="GET /api/ai/observations/latest"
             right={<button className="btn ghost" onClick={() => nav("ai")}>全部 →</button>}>
             {(() => {
-              // real 模式：检查观察是否过期（>90s）
-              const isReal = sim.mode === "real";
-              const now = Math.floor(Date.now() / 1000);
-              const stale = isReal && ai && (now - (typeof ai.timestamp === "number" ? ai.timestamp : new Date(ai.timestamp).getTime() / 1000)) > 90;
               const showAi = ai && !stale;
               const isMock = !isReal || (ai && ai.status === "mock");
 
@@ -126,7 +129,8 @@ export default function PageOverview({ sim, nav }) {
               <div key={e.id} className={"feed-item lvl-" + e.level}>
                 <span className="ts">{fmtTime(e.ts)}</span>
                 <Tag level={e.level === "danger" ? "danger" : e.level === "warn" ? "warn" : "info"}>{LEVEL_LABEL[e.level]}</Tag>
-                <span className="msg">{e.msg}</span>
+                {e.source === "patrol" && <Tag level="info">巡检</Tag>}
+                <span className="msg">{e.source === "patrol" && e.patrol ? `舵机巡检 · ${e.patrol.angles?.map(a => a + "°").join(" / ") || ""} · 最高风险 ${e.patrol.max_risk_hint ?? "?"}` : e.msg}</span>
               </div>
             ))}
           </div>

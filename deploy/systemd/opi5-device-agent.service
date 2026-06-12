@@ -1,0 +1,18 @@
+[Unit]
+Description=OPi5 Device Agent (video, telemetry, heartbeat)
+After=network-online.target edge-ai-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orangepi
+WorkingDirectory=/opt/edge-ai-safety-monitor/edge/opi5-device-agent
+EnvironmentFile=-/etc/edge-ai-safety-monitor.env
+ExecStart=/usr/bin/python3 app.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/opi5-device-agent.log
+StandardError=append:/var/log/opi5-device-agent.log
+
+[Install]
+WantedBy=multi-user.target

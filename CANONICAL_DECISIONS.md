@@ -52,8 +52,8 @@ Orange Pi 5 (RK3588S)
 
 | 逻辑信号 | OPi5 物理脚 | GPIO 号 | 方向 | 备注 |
 |---|---|---|---|---|
-| I2C5 SDA | pin 3 | 47 | I2C | OLED 0x3C + MPU6050 0x68 |
-| I2C5 SCL | pin 5 | 46 | I2C | OLED 0x3C + MPU6050 0x68 |
+| I2C1 SDA | pin 16 | 59 | I2C | OLED 0x3C + MPU6050 0x68 |
+| I2C1 SCL | pin 18 | 58 | I2C | OLED 0x3C + MPU6050 0x68 |
 | Pan servo | pin 7 | 54 (PWM15) | PWM | pwmchip4 |
 | Water MOS | pin 11 | 138 | output | active HIGH |
 | PIR | pin 13 | 139 | input | active HIGH |
@@ -65,6 +65,10 @@ Orange Pi 5 (RK3588S)
 | Buzzer | pin 26 | 35 | output | active LOW |
 
 PCA9685 不可用（模块问题），所有执行器改用 GPIO/PWM 直控。
+
+> **I2C 总线切换 (2026-06-11)：** I2C5 (pin 3/5) 无法检测到外部 I2C 设备，
+> 原因未完全定位（overlay/pinmux 正确但总线无响应）。OLED + MPU6050 已切换到
+> I2C1 (pin 16/18)，实测 0x3C + 0x68 均正常响应。Pin 3/5 空闲。
 
 ## 4. 后端 API 契约
 
@@ -111,6 +115,14 @@ GET /uploads/<filename>
 | telemetry sample | 1Hz |
 | telemetry batch | 30s |
 | AI observation | 30s |
+
+### 当前已确认的契约细节
+
+- heartbeat 已包含 `agent_url`、`agent_port`、`camera`（对象）、`camera_status`、`video_mode`、`video_available`
+- telemetry canonical sample 使用 `device.*` 嵌套结构（cpu_temp_c、mem_used_mb 等不在顶层）
+- `/api/telemetry/series` 支持 metric alias（cpu_temp_c → device.cpu_temp_c 等 8 个）
+- notification_log 包含 `dedupe_key` 字段，cooldown 基于 dedupe_key + timestamp + status='sent'
+- Flask 视频代理地址解析：OPI5_DEVICE_AGENT_URL → agent_url → ip+agent_port；unknown 时返回 503
 
 ## 5. 当前目录树
 

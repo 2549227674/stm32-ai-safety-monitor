@@ -59,16 +59,26 @@ def heartbeat_loop():
             except Exception:
                 ai_health = {"ok": False, "error": "unreachable"}
 
+            cam = video.get_status()
+            agent_ip = _get_ip()
+            agent_url = f"http://{agent_ip}:{AGENT_PORT}" if agent_ip not in ("unknown", "") else None
+
             payload = {
                 "device_id": DEVICE_ID,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "agent_version": "0.2.0",
-                "ip": _get_ip(),
+                "ip": agent_ip,
+                "agent_url": agent_url,
+                "agent_port": AGENT_PORT,
                 "uptime_s": _get_uptime(),
                 "online": True,
                 "services": services,
                 "health": health,
                 "ai": ai_health,
+                "camera": cam,
+                "camera_status": cam["status"],
+                "video_mode": cam["mode"],
+                "video_available": cam["available"],
             }
             poster.post("/api/devices/heartbeat", payload)
         except Exception as e:
@@ -81,7 +91,8 @@ def telemetry_loop():
     while True:
         try:
             m = sensors.sample()
-            m.update(collect_metrics())
+            device_metrics = collect_metrics()
+            m["device"] = device_metrics
             with metrics_lock:
                 latest_metrics = m
             batcher.add_sample(m)
@@ -113,15 +124,30 @@ def health():
 def status():
     with metrics_lock:
         m = dict(latest_metrics)
-    return jsonify({
+    cam = video.get_status()
+
+    # Build warnings for missing data sources
+    warnings = []
+    sensors_source = m.get("sensors_source", {})
+    if sensors_source.get("safety") == "fallback_mock":
+        warnings.append("safetyd status file missing or unreadable, using fallback mock data")
+
+    result = {
         "ok": True,
         "device_id": DEVICE_ID,
         "ip": _get_ip(),
         "metrics": m,
+        "sensors_source": sensors_source,
         "video_available": video.is_available(),
+        "camera": cam,
+        "camera_status": cam["status"],
+        "video_mode": cam["mode"],
         "ai_url": AI_URL,
         "backend_url": BACKEND_URL,
-    })
+    }
+    if warnings:
+        result["warnings"] = warnings
+    return jsonify(result)
 
 
 @app.get("/api/metrics/current")
@@ -135,13 +161,22 @@ def metrics_current():
 def video_stream():
     def generate():
         while True:
-            frame = video.get_frame()
+            frame = video.wait_frame(timeout=2.0)
             if frame is None:
-                time.sleep(0.1)
                 continue
             yield (b"--frame\r\n"
-                   b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
-    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+                   b"Content-Type: image/jpeg\r\n"
+                   b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
+                   + frame + b"\r\n")
+    return Response(
+        generate(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/video/snapshot.jpg")

@@ -39,7 +39,7 @@
 #define DEFAULT_GPIO_RGB_B 52           /* pin 24, active HIGH, 已验证 */
 #define DEFAULT_GPIO_RGB_B_ACTIVE_HIGH 1
 #define DEFAULT_RGB_BACKEND "gpio"      /* PCA9685 不可用，GPIO 直控 */
-#define DEFAULT_PCA9685_BUS "/dev/i2c-5"
+#define DEFAULT_PCA9685_BUS "/dev/i2c-1"
 #define DEFAULT_PCA9685_ADDR 0x40
 #define DEFAULT_PCA9685_RGB_R_CH 2
 #define DEFAULT_PCA9685_RGB_G_CH 3
@@ -61,7 +61,7 @@
 #define DEFAULT_INTERVAL_SEC 2
 #define DEFAULT_MODE "once"
 #define DEFAULT_OLED_ENABLE 0
-#define DEFAULT_OLED_BUS "/dev/i2c-5"    /* I2C5 pin 3/5, 已验证 */
+#define DEFAULT_OLED_BUS "/dev/i2c-1"    /* I2C1 pin 16/18, 已验证 */
 #define DEFAULT_OLED_ADDR 0x3C
 #define DEFAULT_RELAY_ENABLE 0
 #define DEFAULT_PCA9685_RELAY_CH 5
@@ -75,6 +75,20 @@
 #define DEFAULT_BACKEND_URL "http://127.0.0.1:5000"
 #define DEFAULT_OPI5_URL "http://127.0.0.1:8080"
 #define INITIAL_SEQ 9000
+
+/* Patrol (servo sweep) defaults */
+#define DEFAULT_PATROL_ENABLE 0
+#define DEFAULT_PATROL_INTERVAL_SEC 30
+#define DEFAULT_PATROL_ANGLES_STR "60,90,120"
+#define DEFAULT_PATROL_SETTLE_MS 500
+#define DEFAULT_PATROL_SETTLE_CAPTURE_MS 2000
+#define DEFAULT_PATROL_AI_ENABLE 1
+#define DEFAULT_PATROL_POST_EVENT 1
+#define DEFAULT_PATROL_MAX_ANGLES 16
+#define DEFAULT_PATROL_AI_TIMEOUT_SEC 10
+
+/* Water gun on flame (reuse SPRAY_MAX_MS / SPRAY_COOLDOWN_MS) */
+#define DEFAULT_WATER_GUN_ON_FLAME_ENABLE 0
 
 /* Spray double-confirmation defaults */
 #define DEFAULT_SPRAY_CONFIRM_ENABLE 0
@@ -147,6 +161,18 @@ typedef struct {
     int ai_max_time_sec;
     /* PCA9685 lock path */
     char pca9685_lock_path[256];
+    /* Servo patrol */
+    int patrol_enable;
+    int patrol_interval_sec;
+    int patrol_angles[DEFAULT_PATROL_MAX_ANGLES];
+    int patrol_angle_count;
+    int patrol_settle_ms;
+    int patrol_settle_capture_ms;
+    int patrol_ai_enable;
+    int patrol_post_event;
+    int patrol_ai_timeout_sec;
+    /* Water gun on flame */
+    int water_gun_on_flame_enable;
 } AppConfig;
 
 typedef struct {
@@ -223,6 +249,15 @@ static long long g_last_spray_start_ms = 0;
 static long long g_last_spray_stop_ms = 0;
 static int g_spray_active = 0;
 
+/* Water gun on-flame timing (independent of spray state machine) */
+static long long g_wg_last_trigger_ms = 0;
+static long long g_wg_last_stop_ms = 0;
+static int g_wg_active = 0;
+
+/* Patrol state */
+static long long g_last_patrol_ms = 0;
+static int g_patrol_seq = 0;
+
 static void all_off(const AppConfig *cfg);
 static void shell_quote(const char *src, char *dst, size_t size);
 static int run_shell_command(const char *cmd);
@@ -232,6 +267,9 @@ static void determine_alarm_phase(const AppConfig *cfg, const SensorState *senso
 static int should_pump_activate(const AppConfig *cfg, const SensorState *sensors,
                                  EventContext *ctx);
 static long long extract_json_ll(const char *json, const char *key);
+static void extract_json_string(const char *json, const char *key, char *out, size_t size);
+/* Patrol */
+static void patrol_round(const AppConfig *cfg, const AppPaths *paths);
 /* PCA9685 I2C lock (Hotfix E) */
 static int pca9685_lock_acquire(const char *lock_path);
 static void pca9685_lock_release(int fd);
@@ -357,6 +395,14 @@ static void usage(const char *prog) {
         "  --spray-cooldown-ms N       default/env SPRAY_COOLDOWN_MS\n"
         "  --ai-connect-timeout-sec N  default/env AI_CONNECT_TIMEOUT_SEC\n"
         "  --ai-max-time-sec N         default/env AI_MAX_TIME_SEC\n"
+        "  --patrol-enable 0|1         default/env PATROL_ENABLE\n"
+        "  --patrol-interval-sec N     default/env PATROL_INTERVAL_SEC\n"
+        "  --patrol-angles A,B,C       default/env PATROL_ANGLES (comma-separated degrees)\n"
+        "  --patrol-settle-ms N        default/env PATROL_SETTLE_MS\n"
+        "  --patrol-ai-enable 0|1      default/env PATROL_AI_ENABLE\n"
+        "  --patrol-post-event 0|1     default/env PATROL_POST_EVENT\n"
+        "  --patrol-ai-timeout-sec N   default/env PATROL_AI_TIMEOUT_SEC\n"
+        "  --water-gun-on-flame-enable 0|1 default/env WATER_GUN_ON_FLAME_ENABLE\n"
         "  --help\n"
         "\n"
         "Notes:\n"
@@ -464,6 +510,37 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
     cfg->ai_connect_timeout_sec = set_from_env_int("AI_CONNECT_TIMEOUT_SEC", DEFAULT_AI_CONNECT_TIMEOUT_SEC);
     cfg->ai_max_time_sec = set_from_env_int("AI_MAX_TIME_SEC", DEFAULT_AI_MAX_TIME_SEC);
     set_from_env_string(cfg->pca9685_lock_path, sizeof(cfg->pca9685_lock_path), "PCA9685_LOCK_PATH", DEFAULT_PCA9685_LOCK_PATH);
+
+    /* Patrol config */
+    cfg->patrol_enable = set_from_env_int("PATROL_ENABLE", DEFAULT_PATROL_ENABLE);
+    cfg->patrol_interval_sec = set_from_env_int("PATROL_INTERVAL_SEC", DEFAULT_PATROL_INTERVAL_SEC);
+    cfg->patrol_settle_ms = set_from_env_int("PATROL_SETTLE_MS", DEFAULT_PATROL_SETTLE_MS);
+    cfg->patrol_settle_capture_ms = set_from_env_int("PATROL_SETTLE_CAPTURE_MS", DEFAULT_PATROL_SETTLE_CAPTURE_MS);
+    cfg->patrol_ai_enable = set_from_env_int("PATROL_AI_ENABLE", DEFAULT_PATROL_AI_ENABLE);
+    cfg->patrol_post_event = set_from_env_int("PATROL_POST_EVENT", DEFAULT_PATROL_POST_EVENT);
+    cfg->patrol_ai_timeout_sec = set_from_env_int("PATROL_AI_TIMEOUT_SEC", DEFAULT_PATROL_AI_TIMEOUT_SEC);
+    {
+        const char *angles_env = getenv("PATROL_ANGLES");
+        const char *angles_str = (angles_env && angles_env[0]) ? angles_env : DEFAULT_PATROL_ANGLES_STR;
+        cfg->patrol_angle_count = 0;
+        char abuf[128];
+        snprintf(abuf, sizeof(abuf), "%s", angles_str);
+        char *tok = strtok(abuf, ",; ");
+        while (tok && cfg->patrol_angle_count < DEFAULT_PATROL_MAX_ANGLES) {
+            int a = atoi(tok);
+            if (a >= 0 && a <= 180) {
+                cfg->patrol_angles[cfg->patrol_angle_count++] = a;
+            }
+            tok = strtok(NULL, ",; ");
+        }
+        if (cfg->patrol_angle_count == 0) {
+            cfg->patrol_angles[0] = 90;
+            cfg->patrol_angle_count = 1;
+        }
+    }
+
+    /* Water gun on flame */
+    cfg->water_gun_on_flame_enable = set_from_env_int("WATER_GUN_ON_FLAME_ENABLE", DEFAULT_WATER_GUN_ON_FLAME_ENABLE);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -638,6 +715,32 @@ static int load_config(AppConfig *cfg, int argc, char **argv) {
             if (parse_int(argv[++i], &cfg->ai_connect_timeout_sec) != 0) { return -1; }
         } else if (strcmp(argv[i], "--ai-max-time-sec") == 0 && i + 1 < argc) {
             if (parse_int(argv[++i], &cfg->ai_max_time_sec) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--patrol-enable") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->patrol_enable) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--patrol-interval-sec") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->patrol_interval_sec) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--patrol-angles") == 0 && i + 1 < argc) {
+            cfg->patrol_angle_count = 0;
+            char abuf[128];
+            snprintf(abuf, sizeof(abuf), "%s", argv[++i]);
+            char *tok = strtok(abuf, ",; ");
+            while (tok && cfg->patrol_angle_count < DEFAULT_PATROL_MAX_ANGLES) {
+                int a = atoi(tok);
+                if (a >= 0 && a <= 180) {
+                    cfg->patrol_angles[cfg->patrol_angle_count++] = a;
+                }
+                tok = strtok(NULL, ",; ");
+            }
+        } else if (strcmp(argv[i], "--patrol-settle-ms") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->patrol_settle_ms) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--patrol-ai-enable") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->patrol_ai_enable) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--patrol-post-event") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->patrol_post_event) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--patrol-ai-timeout-sec") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->patrol_ai_timeout_sec) != 0) { return -1; }
+        } else if (strcmp(argv[i], "--water-gun-on-flame-enable") == 0 && i + 1 < argc) {
+            if (parse_int(argv[++i], &cfg->water_gun_on_flame_enable) != 0) { return -1; }
         } else {
             fprintf(stderr, "unknown or incomplete argument: %s\n", argv[i]);
             usage(argv[0]);
@@ -1041,6 +1144,9 @@ static void all_off(const AppConfig *cfg) {
 
     /* Pump off */
     pca9685_set_pump(cfg, 0);
+
+    /* Water gun GPIO off */
+    write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 0);
 
     log_msg("[actuators] all_off (backend=%s)", cfg->rgb_backend);
 }
@@ -1864,12 +1970,536 @@ static void write_status_json(const AppPaths *paths, const EventContext *ctx, co
     } else {
         fprintf(fp, "null");
     }
+
+    /* Water gun status */
+    const char *wg_decision = "idle";
+    if (g_wg_active) wg_decision = "active";
+    else if (g_wg_last_stop_ms > 0 && (now_ms() - g_wg_last_stop_ms) < 2000) wg_decision = "cooldown";
+
     fprintf(fp,
             ",\n"
+            "  \"water_gun\": %d,\n"
+            "  \"water_gun_decision\": \"%s\",\n"
+            "  \"water_gun_last_trigger_at\": %lld,\n"
+            "  \"water_gun_cooldown_ms\": %d,\n"
             "  \"updated_at\": \"%s\"\n"
             "}\n",
+            g_wg_active, wg_decision,
+            g_wg_last_trigger_ms, 0,
             ts);
     fclose(fp);
+}
+
+/* ---- Servo PWM control via sysfs ---- */
+static char g_servo_pwm_dir[256];
+static int g_servo_pwm_ready = 0;
+
+static int servo_init(void) {
+    snprintf(g_servo_pwm_dir, sizeof(g_servo_pwm_dir),
+             "/sys/class/pwm/pwmchip%d/pwm%d",
+             DEFAULT_SERVO_PWM_CHIP, DEFAULT_SERVO_PWM_CHANNEL);
+
+    char export_path[256], enable_path[280], period_path[280];
+    snprintf(export_path, sizeof(export_path),
+             "/sys/class/pwm/pwmchip%d/export", DEFAULT_SERVO_PWM_CHIP);
+    snprintf(enable_path, sizeof(enable_path), "%s/enable", g_servo_pwm_dir);
+    snprintf(period_path, sizeof(period_path), "%s/period", g_servo_pwm_dir);
+
+    /* Export PWM channel if needed */
+    if (!path_exists(g_servo_pwm_dir)) {
+        char ch_str[8];
+        snprintf(ch_str, sizeof(ch_str), "%d", DEFAULT_SERVO_PWM_CHANNEL);
+        if (write_text_file(export_path, ch_str) != 0) {
+            log_msg("[servo] export pwmchip%d ch%d failed: %s",
+                    DEFAULT_SERVO_PWM_CHIP, DEFAULT_SERVO_PWM_CHANNEL, strerror(errno));
+            return -1;
+        }
+        usleep(100000);
+    }
+
+    /* Set period ONCE, then enable — never rewrite period to avoid glitches */
+    char val[32];
+    snprintf(val, sizeof(val), "%d", DEFAULT_SERVO_PERIOD_NS);
+    if (write_text_file(period_path, val) != 0) {
+        log_msg("[servo] set period failed");
+        return -1;
+    }
+    write_text_file(enable_path, "1");
+
+    g_servo_pwm_ready = 1;
+    log_msg("[servo] PWM initialized: pwmchip%d ch%d period=%dns",
+            DEFAULT_SERVO_PWM_CHIP, DEFAULT_SERVO_PWM_CHANNEL, DEFAULT_SERVO_PERIOD_NS);
+    return 0;
+}
+
+static int servo_set_angle(int angle_deg) {
+    if (!g_servo_pwm_ready) {
+        if (servo_init() != 0) return -1;
+    }
+
+    /* Clamp angle */
+    if (angle_deg < 0) angle_deg = 0;
+    if (angle_deg > 180) angle_deg = 180;
+
+    /* angle → pulse width: 0°=min, 90°=center, 180°=max */
+    int pulse_ns = DEFAULT_SERVO_PULSE_MIN_NS +
+        (int)((long)(DEFAULT_SERVO_PULSE_MAX_NS - DEFAULT_SERVO_PULSE_MIN_NS) * angle_deg / 180);
+
+    /* Only write duty_cycle — period is already set, no rewrite = no glitch */
+    char duty_path[280], val[32];
+    snprintf(duty_path, sizeof(duty_path), "%s/duty_cycle", g_servo_pwm_dir);
+    snprintf(val, sizeof(val), "%d", pulse_ns);
+    if (write_text_file(duty_path, val) != 0) {
+        log_msg("[servo] set duty_cycle failed");
+        return -1;
+    }
+
+    return 0;
+}
+
+static void servo_disable(void) {
+    if (!g_servo_pwm_ready) return;
+    char enable_path[280];
+    snprintf(enable_path, sizeof(enable_path), "%s/enable", g_servo_pwm_dir);
+    write_text_file(enable_path, "0");
+    g_servo_pwm_ready = 0;
+}
+
+/* ---- Patrol round ---- */
+static void patrol_round(const AppConfig *cfg, const AppPaths *paths) {
+    long long t_start = now_ms();
+
+    /* Generate patrol ID */
+    g_patrol_seq++;
+    char ts_tag[32];
+    {
+        time_t t = time(NULL);
+        struct tm tm_utc;
+        gmtime_r(&t, &tm_utc);
+        strftime(ts_tag, sizeof(ts_tag), "%Y%m%d_%H%M%S", &tm_utc);
+    }
+    char patrol_id[64];
+    snprintf(patrol_id, sizeof(patrol_id), "patrol_%s_%03d", ts_tag, g_patrol_seq);
+
+    log_msg("[patrol] START patrol_id=%s angles=%d interval=%ds",
+            patrol_id, cfg->patrol_angle_count, cfg->patrol_interval_sec);
+
+    /* Read sensors once for this patrol round */
+    SensorState sensors;
+    EventContext ctx;
+    memset(&sensors, 0, sizeof(sensors));
+    memset(&ctx, 0, sizeof(ctx));
+    copy_string(ctx.ai_status, sizeof(ctx.ai_status), "skipped");
+
+    read_gpio(cfg, &sensors, &ctx);
+    read_soc_temp(cfg, &sensors);
+
+    /* Safety: apply basic actuators for current sensor state */
+    compute_state(cfg, &sensors, &ctx);
+    read_visual_state(cfg, &ctx);
+    determine_alarm_phase(cfg, &sensors, &ctx, ctx.alarm_phase, sizeof(ctx.alarm_phase));
+    apply_actuators_by_state(cfg, ctx.state, &sensors, &ctx);
+    oled_refresh(g_oled_fd, cfg, &sensors, &ctx);
+
+    /* Water gun on flame during patrol */
+    if (cfg->water_gun_on_flame_enable && sensors.flame) {
+        long long now = now_ms();
+        int should_fire = 1;
+        if (!g_wg_active && g_wg_last_stop_ms > 0) {
+            long long since_stop = now - g_wg_last_stop_ms;
+            if (since_stop >= 0 && since_stop < cfg->spray_cooldown_ms) {
+                should_fire = 0;
+                log_msg("[water_gun] cooldown active, %lldms remaining",
+                        cfg->spray_cooldown_ms - since_stop);
+            }
+        }
+        if (should_fire && !g_wg_active) {
+            g_wg_active = 1;
+            g_wg_last_trigger_ms = now;
+            ensure_gpio_export_out(DEFAULT_GPIO_WATER_GUN);
+            write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 1);
+            log_msg("[water_gun] trigger reason=flame_sensor max_ms=%d cooldown_ms=%d",
+                    cfg->spray_max_ms, cfg->spray_cooldown_ms);
+        }
+    }
+    if (g_wg_active) {
+        long long dur = now_ms() - g_wg_last_trigger_ms;
+        if (dur >= cfg->spray_max_ms) {
+            write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 0);
+            g_wg_active = 0;
+            g_wg_last_stop_ms = now_ms();
+            log_msg("[water_gun] stop reason=max_duration dur=%lldms", dur);
+        }
+    }
+
+    /* Ensure water gun GPIO off if not active */
+    if (!g_wg_active) {
+        ensure_gpio_export_out(DEFAULT_GPIO_WATER_GUN);
+        write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 0);
+    }
+
+    /* Ensure patrol capture directory exists */
+    char patrol_cap_dir[512];
+    snprintf(patrol_cap_dir, sizeof(patrol_cap_dir), "%s/captures/patrol", cfg->base_dir);
+    mkdir_p(patrol_cap_dir);
+
+    int max_risk = 0;
+    int angles_ok = 0;
+    char overall_summary[512];
+    overall_summary[0] = '\0';
+
+    /* Build sweep sequence: center → left → center → right → center
+     * Use first angle as "left", middle as "center", last as "right" */
+    int left_a  = cfg->patrol_angles[0];
+    int center_a = (cfg->patrol_angle_count >= 2) ? cfg->patrol_angles[1] : 90;
+    int right_a = (cfg->patrol_angle_count >= 3) ? cfg->patrol_angles[2] : 120;
+    /* Ensure center is actually the middle value */
+    if (cfg->patrol_angle_count >= 3) {
+        int sorted[3] = {left_a, center_a, right_a};
+        /* Simple sort for 3 elements */
+        if (sorted[0] > sorted[1]) { int t=sorted[0]; sorted[0]=sorted[1]; sorted[1]=t; }
+        if (sorted[1] > sorted[2]) { int t=sorted[1]; sorted[1]=sorted[2]; sorted[2]=t; }
+        if (sorted[0] > sorted[1]) { int t=sorted[0]; sorted[0]=sorted[1]; sorted[1]=t; }
+        left_a = sorted[0]; center_a = sorted[1]; right_a = sorted[2];
+    }
+
+    /* sweep_steps: {angle, should_capture} */
+    struct { int angle; int capture; } sweep[] = {
+        { center_a, 1 },   /* 1. 起始中心，抓拍 */
+        { left_a,   1 },   /* 2. 转左，抓拍 */
+        { center_a, 0 },   /* 3. 回中，只停顿不拍 */
+        { right_a,  1 },   /* 4. 转右，抓拍 */
+        { center_a, 0 },   /* 5. 回中，结束 */
+    };
+    int sweep_count = sizeof(sweep) / sizeof(sweep[0]);
+
+    /* Track captured images for batch AI */
+    char captured_paths[16][512];
+    int captured_angles[16];
+    int capture_count = 0;
+
+    log_msg("[patrol] sweep: %d°→%d°→%d°→%d°→%d° (capture at center/left/right)",
+            center_a, left_a, center_a, right_a, center_a);
+
+    for (int si = 0; si < sweep_count && keep_running; si++) {
+        int angle = sweep[si].angle;
+        int do_capture = sweep[si].capture;
+        log_msg("[patrol] step %d/%d: %d° %s", si + 1, sweep_count, angle,
+                do_capture ? "[抓拍]" : "[停顿]");
+
+        /* 1. Move servo */
+        if (servo_set_angle(angle) != 0) {
+            log_msg("[patrol] servo move to %d° failed", angle);
+            continue;
+        }
+
+        /* 2. Settle: longer for capture positions */
+        int settle_ms = do_capture ? cfg->patrol_settle_capture_ms : cfg->patrol_settle_ms;
+        log_msg("[patrol] settling %dms...", settle_ms);
+        usleep((unsigned long)settle_ms * 1000);
+
+        if (!do_capture) {
+            angles_ok++;
+            continue;
+        }
+
+        /* 3. Capture frame */
+        char capture_path[512];
+        snprintf(capture_path, sizeof(capture_path),
+                 "%s/%s_angle_%d.jpg", patrol_cap_dir, patrol_id, angle);
+
+        char q_dev[160], q_out[640], cap_cmd[2048];
+        shell_quote(cfg->capture_device, q_dev, sizeof(q_dev));
+        shell_quote(capture_path, q_out, sizeof(q_out));
+        snprintf(cap_cmd, sizeof(cap_cmd),
+                 "v4l2-ctl -d %s --set-fmt-video=width=640,height=480,pixelformat=MJPG "
+                 "--stream-mmap=3 --stream-count=1 --stream-to=%s >/dev/null 2>&1",
+                 q_dev, q_out);
+
+        if (run_shell_command(cap_cmd) == 0 && path_exists(capture_path)) {
+            log_msg("[patrol] capture ok: %s", capture_path);
+            if (capture_count < 16) {
+                snprintf(captured_paths[capture_count], 512, "%s", capture_path);
+                captured_angles[capture_count] = angle;
+                capture_count++;
+            }
+        } else {
+            log_msg("[patrol] capture failed at %d°", angle);
+        }
+        angles_ok++;
+    }
+
+    /* 4. Batch AI: send all captured images + sensor summary in ONE call */
+    int risk_hint = 0;
+    char ai_summary[256] = "";
+    char ai_status_str[32] = "skipped";
+
+    if (cfg->patrol_ai_enable && capture_count > 0) {
+        /* Build combined metadata with sensor summary */
+        char meta_path[512];
+        snprintf(meta_path, sizeof(meta_path), "%s/%s_meta.json",
+                 paths->spool_dir, patrol_id);
+
+        FILE *mfp = fopen(meta_path, "w");
+        if (mfp) {
+            char iso_ts[32];
+            iso_time_utc(iso_ts, sizeof(iso_ts));
+            fprintf(mfp,
+                    "{\n"
+                    "  \"contract_version\": \"1.0\",\n"
+                    "  \"device_id\": \"%s\",\n"
+                    "  \"source\": \"patrol\",\n"
+                    "  \"patrol_id\": \"%s\",\n"
+                    "  \"timestamp\": \"%s\",\n"
+                    "  \"angles\": [%d, %d, %d],\n"
+                    "  \"capture_count\": %d,\n"
+                    "  \"sensors\": {\"pir\": %d, \"flame\": %d, \"mq2\": %d, \"soc_temp\": %.1f},\n"
+                    "  \"sensor_summary\": \"PIR=%d flame=%d MQ2=%d temperature=%.1fC\",\n"
+                    "  \"image_format\": \"jpeg\"\n"
+                    "}\n",
+                    cfg->device_id, patrol_id, iso_ts,
+                    left_a, center_a, right_a, capture_count,
+                    sensors.pir, sensors.flame, sensors.mq2,
+                    sensors.soc_temp_valid ? sensors.soc_temp_c : 0.0,
+                    sensors.pir, sensors.flame, sensors.mq2,
+                    sensors.soc_temp_valid ? sensors.soc_temp_c : 0.0);
+            fclose(mfp);
+        }
+
+        /* Build curl command with multiple -F image=@... */
+        char ai_out[512];
+        snprintf(ai_out, sizeof(ai_out), "%s/%s_ai.json",
+                 paths->spool_dir, patrol_id);
+        char ai_http[512];
+        snprintf(ai_http, sizeof(ai_http), "%s/%s_ai.http",
+                 paths->spool_dir, patrol_id);
+        (void)unlink(ai_out);
+        (void)unlink(ai_http);
+
+        char url[320];
+        snprintf(url, sizeof(url), "%s/api/infer/vision", cfg->opi5_url);
+
+        /* Build multi-image curl: -F image=@path1 -F image=@path2 ... */
+        char img_parts[4096];
+        img_parts[0] = '\0';
+        for (int ci = 0; ci < capture_count; ci++) {
+            char q_img[900];
+            char part[900];
+            snprintf(part, sizeof(part), "image=@%s", captured_paths[ci]);
+            shell_quote(part, q_img, sizeof(q_img));
+            if (ci > 0) strncat(img_parts, " ", sizeof(img_parts) - strlen(img_parts) - 1);
+            strncat(img_parts, q_img, sizeof(img_parts) - strlen(img_parts) - 1);
+        }
+
+        char q_meta[900], q_url[400], q_ai_out[700], q_http_out[700];
+        char meta_part[900];
+        snprintf(meta_part, sizeof(meta_part), "metadata=<%s", meta_path);
+        shell_quote(meta_part, q_meta, sizeof(q_meta));
+        shell_quote(url, q_url, sizeof(q_url));
+        shell_quote(ai_out, q_ai_out, sizeof(q_ai_out));
+        shell_quote(ai_http, q_http_out, sizeof(q_http_out));
+
+        char ai_cmd[8192];
+        snprintf(ai_cmd, sizeof(ai_cmd),
+                 "curl -sS -X POST %s -F %s %s -o %s -w '%%{http_code}' "
+                 "--connect-timeout %d --max-time %d > %s 2>/dev/null",
+                 img_parts, q_meta, q_url, q_ai_out,
+                 cfg->patrol_ai_timeout_sec, cfg->patrol_ai_timeout_sec * 2, q_http_out);
+
+        log_msg("[patrol] batch AI: %d images + sensor summary → %s", capture_count, cfg->opi5_url);
+        int ai_code = 0;
+        if (run_shell_command(ai_cmd) == 0) {
+            ai_code = read_http_code_file(ai_http);
+        }
+
+        if (ai_code == 200) {
+            char ai_buf[16384];
+            if (read_text_file_limited(ai_out, ai_buf, sizeof(ai_buf)) == 0) {
+                risk_hint = extract_risk_hint(ai_buf);
+                copy_string(ai_status_str, sizeof(ai_status_str), "ok");
+                char summary_raw[512];
+                extract_json_string(ai_buf, "summary", summary_raw, sizeof(summary_raw));
+                if (summary_raw[0]) {
+                    copy_string(ai_summary, sizeof(ai_summary), summary_raw);
+                }
+            }
+        } else {
+            copy_string(ai_status_str, sizeof(ai_status_str), "offline");
+        }
+        max_risk = risk_hint;
+        log_msg("[patrol] batch AI result: status=%s risk_hint=%d summary=%.80s",
+                ai_status_str, risk_hint, ai_summary);
+    }
+
+    /* Return servo to center */
+    servo_set_angle(90);
+
+    /* Build patrol status JSON */
+    long long duration_ms = now_ms() - t_start;
+    char patrol_status_path[512];
+    snprintf(patrol_status_path, sizeof(patrol_status_path),
+             "%s/opi5_patrol_status.json", paths->run_dir);
+
+    char iso_ts[32];
+    iso_time_utc(iso_ts, sizeof(iso_ts));
+
+    FILE *pfp = fopen(patrol_status_path, "w");
+    if (pfp) {
+        fprintf(pfp,
+                "{\n"
+                "  \"ok\": true,\n"
+                "  \"patrol_id\": \"%s\",\n"
+                "  \"timestamp\": \"%s\",\n"
+                "  \"interval_sec\": %d,\n"
+                "  \"angles\": [",
+                patrol_id, iso_ts, cfg->patrol_interval_sec);
+        for (int i = 0; i < cfg->patrol_angle_count; i++) {
+            if (i > 0) fprintf(pfp, ", ");
+            fprintf(pfp, "%d", cfg->patrol_angles[i]);
+        }
+        fprintf(pfp,
+                "],\n"
+                "  \"results\": [\n");
+        /* Re-read AI results for each angle to build results array */
+        for (int i = 0; i < cfg->patrol_angle_count; i++) {
+            int angle = cfg->patrol_angles[i];
+            char ai_path[512], cap_path[512];
+            snprintf(ai_path, sizeof(ai_path), "%s/%s_ai_%d.json",
+                     paths->spool_dir, patrol_id, angle);
+            snprintf(cap_path, sizeof(cap_path), "%s/%s_angle_%d.jpg",
+                     patrol_cap_dir, patrol_id, angle);
+
+            int r_cap_ok = path_exists(cap_path) ? 1 : 0;
+            int r_risk = 0;
+            char r_summary[256] = "not processed";
+            char r_status[32] = "skipped";
+
+            if (cfg->patrol_ai_enable && r_cap_ok) {
+                char ai_buf[16384];
+                if (read_text_file_limited(ai_path, ai_buf, sizeof(ai_buf)) == 0 && ai_buf[0] == '{') {
+                    r_risk = extract_risk_hint(ai_buf);
+                    copy_string(r_status, sizeof(r_status), "ok");
+                    char s[256];
+                    extract_json_string(ai_buf, "summary", s, sizeof(s));
+                    if (s[0]) copy_string(r_summary, sizeof(r_summary), s);
+                } else {
+                    copy_string(r_status, sizeof(r_status), "offline");
+                }
+            }
+
+            fprintf(pfp,
+                    "    %s{\n"
+                    "      \"angle_deg\": %d,\n"
+                    "      \"capture_ok\": %s,\n"
+                    "      \"ai_status\": \"%s\",\n"
+                    "      \"risk_hint\": %d,\n"
+                    "      \"summary\": \"%s\"\n"
+                    "    }",
+                    i > 0 ? "," : "", angle,
+                    r_cap_ok ? "true" : "false",
+                    r_status, r_risk, r_summary);
+            fprintf(pfp, "\n");
+        }
+
+        /* Generate overall summary */
+        if (max_risk == 0) {
+            snprintf(overall_summary, sizeof(overall_summary),
+                     "本轮 %d 角度巡检未发现火焰或烟雾异常", cfg->patrol_angle_count);
+        } else if (max_risk <= 3) {
+            snprintf(overall_summary, sizeof(overall_summary),
+                     "本轮 %d 角度巡检发现低风险信号 (risk=%d)", cfg->patrol_angle_count, max_risk);
+        } else {
+            snprintf(overall_summary, sizeof(overall_summary),
+                     "本轮 %d 角度巡检发现风险信号 (risk=%d)，请人工确认", cfg->patrol_angle_count, max_risk);
+        }
+
+        fprintf(pfp,
+                "  ],\n"
+                "  \"max_risk_hint\": %d,\n"
+                "  \"overall_summary\": \"%s\",\n"
+                "  \"duration_ms\": %lld\n"
+                "}\n",
+                max_risk, overall_summary, duration_ms);
+        fclose(pfp);
+        log_msg("[patrol] status written: %s", patrol_status_path);
+    }
+
+    /* Post patrol event to backend */
+    if (cfg->patrol_post_event) {
+        char event_json_path[512];
+        snprintf(event_json_path, sizeof(event_json_path),
+                 "%s/patrol_event_%s.json", paths->spool_dir, patrol_id);
+
+        const char *level = (max_risk >= 6) ? "danger" : (max_risk >= 3) ? "warn" : "info";
+        char message[512];
+        snprintf(message, sizeof(message),
+                 "舵机巡检完成：%d 个角度，最高风险 %d，%s",
+                 cfg->patrol_angle_count, max_risk,
+                 max_risk == 0 ? "未发现明显异常" : "存在风险信号");
+
+        FILE *efp = fopen(event_json_path, "w");
+        if (efp) {
+            fprintf(efp,
+                    "{\n"
+                    "  \"type\": \"event\",\n"
+                    "  \"device_id\": \"%s\",\n"
+                    "  \"state\": \"PATROL\",\n"
+                    "  \"risk_score\": %d,\n"
+                    "  \"need_snap\": false,\n"
+                    "  \"sensors\": {\"pir\": %d, \"flame\": %d, \"mq2\": %d},\n"
+                    "  \"actuators\": {},\n"
+                    "  \"source\": \"patrol\",\n"
+                    "  \"level\": \"%s\",\n"
+                    "  \"message\": \"%s\",\n"
+                    "  \"patrol\": {\n"
+                    "    \"patrol_id\": \"%s\",\n"
+                    "    \"angles\": [",
+                    cfg->device_id, max_risk,
+                    sensors.pir, sensors.flame, sensors.mq2,
+                    level, message, patrol_id);
+            for (int i = 0; i < cfg->patrol_angle_count; i++) {
+                if (i > 0) fprintf(efp, ", ");
+                fprintf(efp, "%d", cfg->patrol_angles[i]);
+            }
+            fprintf(efp,
+                    "],\n"
+                    "    \"max_risk_hint\": %d,\n"
+                    "    \"overall_summary\": \"%s\",\n"
+                    "    \"duration_ms\": %lld\n"
+                    "  }\n"
+                    "}\n",
+                    max_risk, overall_summary, duration_ms);
+            fclose(efp);
+        }
+
+        /* POST to backend */
+        char post_cmd[4096];
+        char q_url[400], q_event[700], q_resp[700], q_http[700];
+        char url[320], resp_path[512], http_path[512];
+        snprintf(url, sizeof(url), "%s/api/events", cfg->backend_url);
+        snprintf(resp_path, sizeof(resp_path), "%s.response.txt", event_json_path);
+        snprintf(http_path, sizeof(http_path), "%s.http", event_json_path);
+        shell_quote(url, q_url, sizeof(q_url));
+        shell_quote(event_json_path, q_event, sizeof(q_event));
+        shell_quote(resp_path, q_resp, sizeof(q_resp));
+        shell_quote(http_path, q_http, sizeof(q_http));
+        snprintf(post_cmd, sizeof(post_cmd),
+                 "curl -sS -X POST %s -H 'Content-Type: application/json' -d @%s -o %s "
+                 "-w '%%{http_code}' --connect-timeout 5 --max-time 10 > %s 2>/dev/null",
+                 q_url, q_event, q_resp, q_http);
+
+        int post_code = 0;
+        if (run_shell_command(post_cmd) == 0) {
+            post_code = read_http_code_file(http_path);
+        }
+        log_msg("[patrol] backend POST: HTTP %03d", post_code);
+    }
+
+    /* Keep servo at center with PWM active (prevents drift) */
+    servo_set_angle(90);
+
+    log_msg("[patrol] DONE patrol_id=%s angles_ok=%d max_risk=%d duration=%lldms",
+            patrol_id, angles_ok, max_risk, duration_ms);
 }
 
 static int run_once(const AppConfig *cfg, const AppPaths *paths) {
@@ -1925,6 +2555,47 @@ static int run_once(const AppConfig *cfg, const AppPaths *paths) {
     }
 
     apply_actuators_by_state(cfg, ctx.state, &sensors, &ctx);
+
+    /* Water gun on flame: check every cycle (not just patrol) */
+    if (cfg->water_gun_on_flame_enable) {
+        long long now = now_ms();
+        if (sensors.flame) {
+            if (!g_wg_active) {
+                /* Check cooldown */
+                int can_fire = 1;
+                if (g_wg_last_stop_ms > 0) {
+                    long long since_stop = now - g_wg_last_stop_ms;
+                    if (since_stop >= 0 && since_stop < cfg->spray_cooldown_ms) {
+                        can_fire = 0;
+                        log_msg("[water_gun] flame=1 but cooldown (%lldms/%dms remaining)",
+                                cfg->spray_cooldown_ms - since_stop, cfg->spray_cooldown_ms);
+                    }
+                }
+                if (can_fire) {
+                    g_wg_active = 1;
+                    g_wg_last_trigger_ms = now;
+                    ensure_gpio_export_out(DEFAULT_GPIO_WATER_GUN);
+                    write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 1);
+                    log_msg("[water_gun] TRIGGER reason=flame_sensor max_ms=%d cooldown_ms=%d",
+                            cfg->spray_max_ms, cfg->spray_cooldown_ms);
+                }
+            }
+        }
+        /* Check max duration */
+        if (g_wg_active) {
+            long long dur = now - g_wg_last_trigger_ms;
+            if (dur >= cfg->spray_max_ms) {
+                write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 0);
+                g_wg_active = 0;
+                g_wg_last_stop_ms = now;
+                log_msg("[water_gun] STOP reason=max_duration dur=%lldms", dur);
+            }
+        }
+        /* Ensure off when not active and no flame */
+        if (!g_wg_active && !sensors.flame) {
+            write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 0);
+        }
+    }
 
     /* Refresh OLED display (non-fatal) */
     oled_refresh(g_oled_fd, cfg, &sensors, &ctx);
@@ -2053,14 +2724,40 @@ static int flush_spool(const AppConfig *cfg, const AppPaths *paths) {
 }
 
 static int run_loop(const AppConfig *cfg, const AppPaths *paths) {
-    log_msg("[loop] start interval_sec=%d", cfg->interval_sec);
+    log_msg("[loop] start interval_sec=%d patrol=%s",
+            cfg->interval_sec, cfg->patrol_enable ? "enabled" : "disabled");
+    if (cfg->patrol_enable) {
+        log_msg("[loop] patrol_interval=%ds angles=%d settle=%dms ai=%s",
+                cfg->patrol_interval_sec, cfg->patrol_angle_count,
+                cfg->patrol_settle_ms, cfg->patrol_ai_enable ? "on" : "off");
+        g_last_patrol_ms = now_ms();
+    }
     while (keep_running) {
+        long long now = now_ms();
+
+        /* Check if patrol is due (patrol replaces one normal cycle) */
+        if (cfg->patrol_enable) {
+            long long since = now - g_last_patrol_ms;
+            if (since >= (long long)cfg->patrol_interval_sec * 1000LL) {
+                g_last_patrol_ms = now;
+                patrol_round(cfg, paths);
+                if (!keep_running) break;
+                /* After patrol, sleep normal interval before next cycle */
+                sleep_seconds_interruptible(cfg->interval_sec);
+                continue;
+            }
+        }
+
         (void)run_once(cfg, paths);
         if (!keep_running) {
             break;
         }
         sleep_seconds_interruptible(cfg->interval_sec);
     }
+    /* Ensure servo centered and water gun off on exit */
+    servo_set_angle(90);
+    servo_disable();
+    write_gpio_output(DEFAULT_GPIO_WATER_GUN, DEFAULT_GPIO_WATER_GUN_ACTIVE_HIGH, 0);
     log_msg("[loop] stopped");
     return 0;
 }
@@ -2087,6 +2784,8 @@ int main(int argc, char **argv) {
         ensure_gpio_export_out(cfg.gpio_rgb_g);
         ensure_gpio_export_out(cfg.gpio_rgb_b);
     }
+    /* Water gun GPIO init */
+    ensure_gpio_export_out(DEFAULT_GPIO_WATER_GUN);
     all_off(&cfg);
 
     /* Open OLED if enabled (non-fatal on failure) */
@@ -2095,8 +2794,11 @@ int main(int argc, char **argv) {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    log_msg("[start] mode=%s device_id=%s base_dir=%s oled=%s", cfg.mode, cfg.device_id, cfg.base_dir,
-            cfg.oled_enable ? "enabled" : "disabled");
+    log_msg("[start] mode=%s device_id=%s base_dir=%s oled=%s patrol=%s wg_flame=%s",
+            cfg.mode, cfg.device_id, cfg.base_dir,
+            cfg.oled_enable ? "enabled" : "disabled",
+            cfg.patrol_enable ? "enabled" : "disabled",
+            cfg.water_gun_on_flame_enable ? "enabled" : "disabled");
     int rc = 0;
     if (strcmp(cfg.mode, "flush") == 0) {
         rc = flush_spool(&cfg, &paths);

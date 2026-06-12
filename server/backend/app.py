@@ -1,3 +1,6 @@
+import json
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -11,6 +14,7 @@ from database import (
     init_db, insert_event, insert_image, list_events, get_latest_event,
     upsert_device_status, get_device_status, insert_telemetry_batch,
     get_telemetry_series, insert_ai_observation, get_latest_ai_observation,
+    list_ai_observations,
     get_thresholds, upsert_threshold, insert_alert, list_alerts,
     get_connection,
 )
@@ -51,6 +55,9 @@ def create_app():
     init_db()
 
     notifier = EmailNotifier(get_connection)
+
+    # Start realtime cache background thread (fetches device-agent status once/sec)
+    _realtime_cache.start(os.environ.get("DEVICE_ID", "edge-opi5-001"))
 
     @app.errorhandler(RequestEntityTooLarge)
     def handle_large_file(_error):
@@ -98,8 +105,9 @@ def create_app():
 
     @app.get("/api/events")
     def get_events():
-        limit = parse_limit(request.args.get("limit"))
-        events = list_events(limit)
+        limit = parse_limit(request.args.get("limit"), max_limit=500)
+        device_id = request.args.get("device_id")
+        events = list_events(limit, device_id=device_id)
         return jsonify({"ok": True, "count": len(events), "events": events})
 
     @app.get("/api/status/latest")
@@ -196,7 +204,7 @@ def create_app():
             payload,
             samples,
         )
-        _check_telemetry_alerts(device_id, summary)
+        _check_telemetry_alerts(device_id, summary, notifier)
         return jsonify({"ok": True, "device_id": device_id, "sample_count": len(samples)})
 
     @app.get("/api/telemetry/series")
@@ -206,8 +214,9 @@ def create_app():
         seconds = int(request.args.get("seconds", 600))
         if not device_id or not metric:
             return jsonify({"ok": False, "error": "device_id and metric required"}), 400
-        points = get_telemetry_series(device_id, metric, seconds)
-        threshold = _get_threshold_for_metric(device_id, metric)
+        canonical = _resolve_metric_alias(metric)
+        points = get_telemetry_series(device_id, canonical, seconds)
+        threshold = _get_threshold_for_metric(device_id, canonical)
         return jsonify({"ok": True, "device_id": device_id, "metric": metric, "points": points, "threshold": threshold})
 
     # --- AI observations ---
@@ -221,7 +230,7 @@ def create_app():
         if not device_id:
             return jsonify({"ok": False, "error": "device_id required"}), 400
         obs_id = insert_ai_observation(payload)
-        _check_ai_alert(device_id, payload, obs_id)
+        _check_ai_alert(device_id, payload, obs_id, notifier)
         return jsonify({"ok": True, "id": obs_id, "device_id": device_id}), 201
 
     @app.get("/api/ai/observations/latest")
@@ -231,6 +240,15 @@ def create_app():
             return jsonify({"ok": False, "error": "device_id required"}), 400
         obs = get_latest_ai_observation(device_id)
         return jsonify({"ok": True, "device_id": device_id, "observation": obs})
+
+    @app.get("/api/ai/observations")
+    def list_ai_obs():
+        device_id = request.args.get("device_id")
+        if not device_id:
+            return jsonify({"ok": False, "error": "device_id required"}), 400
+        limit = parse_limit(request.args.get("limit"), max_limit=200)
+        obs = list_ai_observations(device_id, limit)
+        return jsonify({"ok": True, "device_id": device_id, "count": len(obs), "observations": obs})
 
     # --- Thresholds ---
 
@@ -274,10 +292,22 @@ def create_app():
             return jsonify({"ok": False, "error": "device agent not available"}), 503
         import requests as req
         try:
-            resp = req.get(f"{agent_url}/api/video/stream", stream=True, timeout=10)
+            resp = req.get(f"{agent_url}/api/video/stream", stream=True, timeout=(3, None))
+            def generate():
+                try:
+                    for chunk in resp.iter_content(chunk_size=4096):
+                        if chunk:
+                            yield chunk
+                finally:
+                    resp.close()
             return app.response_class(
-                resp.iter_content(chunk_size=4096),
+                generate(),
                 content_type=resp.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame"),
+                headers={
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "X-Accel-Buffering": "no",
+                },
             )
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 503
@@ -289,13 +319,18 @@ def create_app():
             return jsonify({"ok": False, "error": "device_id required"}), 400
         agent_url = _get_device_agent_url(device_id)
         if not agent_url:
-            return jsonify({"ok": False, "error": "device agent not available"}), 503
+            return jsonify({"ok": False, "error": "device agent not available", "camera_status": "offline"}), 503
         import requests as req
         try:
             resp = req.get(f"{agent_url}/api/video/snapshot.jpg", timeout=10)
+            if resp.status_code == 503:
+                return jsonify({"ok": False, "error": "no frame available from device", "camera_status": "offline"}), 503
+            ct = resp.headers.get("Content-Type", "")
+            if "image/jpeg" not in ct:
+                return jsonify({"ok": False, "error": "device agent returned non-JPEG response", "camera_status": "unknown"}), 503
             return app.response_class(resp.content, content_type="image/jpeg")
         except Exception as e:
-            return jsonify({"ok": False, "error": str(e)}), 503
+            return jsonify({"ok": False, "error": str(e), "camera_status": "offline"}), 503
 
     # --- SSE stream ---
 
@@ -321,8 +356,11 @@ def create_app():
         payload = request.get_json(silent=True)
         if not payload or not isinstance(payload, dict):
             return jsonify({"ok": False, "error": "JSON body required"}), 400
-        notifier.update_settings(payload)
-        return jsonify({"ok": True, "settings": notifier.get_settings()})
+        saved = notifier.update_settings(payload)
+        result = {"ok": True, "settings": notifier.get_settings()}
+        if not saved:
+            result["warning"] = "settings updated in memory but failed to persist to disk"
+        return jsonify(result)
 
     @app.post("/api/notification/test-email")
     def send_test_email():
@@ -355,21 +393,49 @@ def _get_device_agent_url(device_id):
     if url:
         return url.rstrip("/")
     d = get_device_status(device_id)
-    if d:
-        status = d.get("status", {})
-        hb = status.get("heartbeat", {})
-        if hb.get("agent_url"):
-            return hb["agent_url"].rstrip("/")
+    if not d:
+        return None
+    status = d.get("status", {})
+    # status IS the heartbeat payload (raw heartbeat JSON stored directly)
+    hb = status.get("heartbeat", status) or {}
+    # 1. direct agent_url in heartbeat (skip "unknown", empty, or URLs with unknown host)
+    for src in (hb, status):
+        au = src.get("agent_url")
+        if au and au not in ("unknown", "") and "unknown" not in au:
+            return au.rstrip("/")
+    # 2. infer from ip + agent_port (skip "unknown"/null/empty ip)
+    ip = hb.get("ip") or status.get("ip")
+    if ip and ip not in ("unknown", "", "null"):
+        port = hb.get("agent_port") or status.get("agent_port") or 8090
+        return f"http://{ip}:{port}"
     return None
 
 
 def _default_thresholds():
     return {
         "risk_score": {"warn": 4, "danger": 7, "unit": "score"},
-        "cpu_temp_c": {"warn": 75, "danger": 85, "unit": "°C"},
+        "device.cpu_temp_c": {"warn": 75, "danger": 85, "unit": "°C"},
         "mpu6500.vibration_score": {"warn": 4, "danger": 7, "unit": "score"},
-        "smoke_score": {"warn": 3, "danger": 6, "unit": "score"},
+        "sensor_scores.smoke": {"warn": 3, "danger": 6, "unit": "score"},
     }
+
+
+_METRIC_ALIASES = {
+    "cpu_temp_c": "device.cpu_temp_c",
+    "mem_used_mb": "device.mem_used_mb",
+    "smoke_score": "sensor_scores.smoke",
+    "smoke": "sensor_scores.smoke",
+    "flame_score": "sensor_scores.flame",
+    "mpu6500_vibration": "mpu6500.vibration_score",
+    "vibration_score": "mpu6500.vibration_score",
+    "pir": "safety.pir",
+    "flame": "safety.flame",
+    "mq2": "safety.mq2",
+}
+
+
+def _resolve_metric_alias(metric):
+    return _METRIC_ALIASES.get(metric, metric)
 
 
 def _get_threshold_for_metric(device_id, metric):
@@ -377,10 +443,16 @@ def _get_threshold_for_metric(device_id, metric):
     if metric in t:
         return t[metric]
     defaults = _default_thresholds()
-    return defaults.get(metric)
+    if metric in defaults:
+        return defaults[metric]
+    # Try alias resolution for threshold lookup
+    canonical = _resolve_metric_alias(metric)
+    if canonical in t:
+        return t[canonical]
+    return defaults.get(canonical)
 
 
-def _check_telemetry_alerts(device_id, summary):
+def _check_telemetry_alerts(device_id, summary, notifier):
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     thresholds = get_thresholds(device_id) or _default_thresholds()
@@ -392,7 +464,7 @@ def _check_telemetry_alerts(device_id, summary):
         notifier.notify_alert(alert)
 
 
-def _check_ai_alert(device_id, obs, obs_id):
+def _check_ai_alert(device_id, obs, obs_id, notifier):
     from datetime import datetime, timezone
     risk_hint = obs.get("risk_hint")
     if risk_hint is not None and risk_hint >= 7:
@@ -411,14 +483,109 @@ def _check_ai_alert(device_id, obs, obs_id):
 
 def _build_tick(device_id):
     from datetime import datetime, timezone
-    return {
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    tick = {
         "type": "tick",
-        "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "timestamp": now,
         "device": get_device_status(device_id) if device_id else None,
         "latest_event": get_latest_event(),
         "latest_ai_observation": get_latest_ai_observation(device_id) if device_id else None,
         "alerts": list_alerts(device_id, 5) if device_id else [],
     }
+    # Realtime channel: read from background cache (non-blocking)
+    tick["realtime"] = _realtime_cache.get()
+    return tick
+
+
+import threading as _threading
+
+class _RealtimeCache:
+    """Background thread fetches device-agent /api/status once per second.
+    SSE clients read from cache without blocking."""
+
+    def __init__(self):
+        self._data = None
+        self._ts = 0.0
+        self._lock = _threading.Lock()
+        self._agent_url = None
+        self._device_id = None
+        self._interval = float(os.environ.get("REALTIME_SSE_INTERVAL_SEC", "1"))
+        self._enabled = os.environ.get("REALTIME_SSE_ENABLED", "1") != "0"
+        self._timeout = 0.5
+
+    def start(self, device_id):
+        if not self._enabled:
+            return
+        self._device_id = device_id
+        _threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        import requests as req
+        from time import monotonic
+        while True:
+            try:
+                if self._agent_url is None:
+                    self._agent_url = _get_device_agent_url(self._device_id)
+                if not self._agent_url:
+                    time.sleep(self._interval)
+                    continue
+
+                t0 = monotonic()
+                resp = req.get(f"{self._agent_url}/api/status", timeout=self._timeout)
+                latency_ms = int((monotonic() - t0) * 1000)
+                if resp.status_code != 200:
+                    time.sleep(self._interval)
+                    continue
+
+                data = resp.json()
+                m = data.get("metrics", {})
+                sensors = m.get("sensors", {})
+                device = m.get("device", {})
+                sensors_source = data.get("sensors_source", m.get("sensors_source", {}))
+                result = {
+                    "ts": m.get("ts"),
+                    "fetch_latency_ms": latency_ms,
+                    "risk_score": m.get("risk_score"),
+                    "sensors": {
+                        "pir": sensors.get("safety", {}).get("pir"),
+                        "flame": sensors.get("safety", {}).get("flame"),
+                        "mq2": sensors.get("safety", {}).get("mq2"),
+                        "vibration_score": sensors.get("mpu6500", {}).get("vibration_score"),
+                        "accel_x": sensors.get("mpu6500", {}).get("accel_x"),
+                        "accel_y": sensors.get("mpu6500", {}).get("accel_y"),
+                        "accel_z": sensors.get("mpu6500", {}).get("accel_z"),
+                        "temp_c": sensors.get("env", {}).get("temp_c"),
+                        "humidity_pct": sensors.get("env", {}).get("humidity_pct"),
+                        "light_lux": sensors.get("env", {}).get("light_lux"),
+                    },
+                    "sensors_source": sensors_source,
+                    "device": {
+                        "cpu_temp_c": device.get("cpu_temp_c"),
+                        "mem_used_mb": device.get("mem_used_mb"),
+                        "cpu_load_1m": device.get("cpu_load_1m"),
+                        "disk_used_pct": device.get("disk_used_pct"),
+                    },
+                    "camera": data.get("camera"),
+                    "ai": data.get("ai"),
+                    "warnings": data.get("warnings", []),
+                }
+                with self._lock:
+                    self._data = result
+                    self._ts = monotonic()
+            except Exception:
+                pass
+            time.sleep(self._interval)
+
+    def get(self):
+        with self._lock:
+            if self._data is None:
+                return None
+            age_ms = int((time.monotonic() - self._ts) * 1000)
+            result = dict(self._data)
+            result["age_ms"] = age_ms
+            return result
+
+_realtime_cache = _RealtimeCache()
 
 
 def normalize_event(payload, source):
@@ -427,6 +594,8 @@ def normalize_event(payload, source):
         payload.get("actuators", {}), DEFAULT_ACTUATORS, "actuators"
     )
     risk_value = payload.get("risk_score", payload.get("risk", 0))
+    # Use payload source (e.g. "patrol") if present, else fall back to caller
+    effective_source = payload.get("source") or source
 
     return {
         "timestamp": utc_timestamp(),
@@ -439,7 +608,7 @@ def normalize_event(payload, source):
         "sensors": sensors,
         "actuators": actuators,
         "raw_json": payload,
-        "source": source,
+        "source": effective_source,
     }
 
 
@@ -498,14 +667,14 @@ def parse_bool(value):
     return bool(value)
 
 
-def parse_limit(value):
+def parse_limit(value, max_limit=None):
     if value in (None, ""):
         return DEFAULT_LIMIT
     try:
         limit = int(value)
     except (TypeError, ValueError):
         return DEFAULT_LIMIT
-    return max(1, min(MAX_LIMIT, limit))
+    return max(1, min(max_limit or MAX_LIMIT, limit))
 
 
 def utc_timestamp():

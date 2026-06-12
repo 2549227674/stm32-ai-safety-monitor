@@ -33,7 +33,8 @@ OPi5 一板主控，同时运行本地安全闭环（`opi5_safetyd`）和 AI 推
 | 3 | `docs/02_需求分析与功能优先级_端边协同版.md` | 功能优先级 |
 | 4 | `docs/03_硬件系统设计与供电安全_OPi5版.md` | 硬件设计 |
 | 5 | `docs/04_软件架构与模块划分_Linux边缘控制版.md` | 软件架构 |
-| 6 | `docs/06_状态机与联动机制_Linux实现版.md` | 状态机 |
+| 6 | `docs/05_开发计划与MVP验收标准_Linux_RKNN版.md` | MVP 验收标准 |
+| 7 | `docs/06_状态机与联动机制_Linux实现版.md` | 状态机 |
 | 7 | `docs/07_端边HTTP_JSON_Contract.md` | API 契约权威 |
 | 8 | `docs/08_OPi5视觉采集与视频流方案.md` | 视觉采集与视频流 |
 | 9 | `docs/09_OrangePi5_RKNN本地AI推理与解释方案.md` | AI 实现 |

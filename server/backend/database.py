@@ -155,16 +155,18 @@ def insert_event(event):
         return cursor.lastrowid
 
 
-def list_events(limit=50):
+def list_events(limit=50, device_id=None):
     with get_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM events
-            ORDER BY event_id DESC
-            LIMIT ?;
-            """,
-            (limit,),
-        ).fetchall()
+        if device_id:
+            rows = conn.execute(
+                "SELECT * FROM events WHERE device_id=? ORDER BY event_id DESC LIMIT ?;",
+                (device_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM events ORDER BY event_id DESC LIMIT ?;",
+                (limit,),
+            ).fetchall()
     return [event_row_to_dict(row) for row in rows]
 
 
@@ -306,6 +308,15 @@ def get_latest_ai_observation(device_id):
     return safe_json_loads(row["observation_json"], {})
 
 
+def list_ai_observations(device_id, limit=24):
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM ai_observations WHERE device_id=? ORDER BY id DESC LIMIT ?",
+            (device_id, limit),
+        ).fetchall()
+    return [safe_json_loads(r["observation_json"], {}) for r in rows]
+
+
 def get_thresholds(device_id):
     with get_connection() as conn:
         rows = conn.execute("SELECT metric, config_json FROM thresholds WHERE device_id=?", (device_id,)).fetchall()
@@ -371,4 +382,5 @@ def event_row_to_dict(row):
         raw.get("image_url") if isinstance(raw, dict) else None
     ) or ((vision or {}).get("image_url") if isinstance(vision, dict) else None)
     out["latency_ms"] = raw.get("latency_ms") if isinstance(raw, dict) else None
+    out["patrol"] = raw.get("patrol") if isinstance(raw, dict) else None
     return out

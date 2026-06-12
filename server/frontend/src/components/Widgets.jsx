@@ -28,16 +28,31 @@ function fmtUptime(s) {
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
   return (d ? d + "d " : "") + h + "h " + m + "m";
 }
+function toSec(ts) {
+  if (ts == null || ts === "") return null;
+  if (typeof ts === "number" && Number.isFinite(ts)) return ts;
+  if (typeof ts === "string") {
+    const n = Number(ts);
+    if (Number.isFinite(n)) return n;
+    const ms = new Date(ts).getTime();
+    if (Number.isFinite(ms)) return ms / 1000;
+  }
+  return null;
+}
 function timeAgo(ts) {
-  if (!ts) return "—";
-  const s = Math.floor(Date.now() / 1000) - ts;
+  const sec = toSec(ts);
+  if (sec == null) return "—";
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - sec));
+  if (!Number.isFinite(s)) return "—";
   if (s < 3) return "刚刚";
   if (s < 60) return s + "s 前";
   if (s < 3600) return Math.floor(s / 60) + "m 前";
   return Math.floor(s / 3600) + "h 前";
 }
 function fmtTime(ts) {
-  const d = new Date(ts * 1000);
+  const sec = toSec(ts);
+  if (sec == null) return "—";
+  const d = new Date(sec * 1000);
   const p = (n) => String(n).padStart(2, "0");
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
@@ -90,7 +105,8 @@ function systemStatus(sim) {
     const dev = sim.device;
     if (!dev || !dev.online) return { level: "off", label: "设备离线", pill: "danger", blink: true };
     const aiOk = dev.ai && dev.ai.ok;
-    const cameraOk = sim.videoOnline && sim.cameraStatus === "online";
+    const cs = sim.cameraStatus;
+    const cameraOk = sim.videoOnline && (cs === "online" || cs === "mock");
     if (!aiOk && !cameraOk) return { level: "degraded", label: "降级运行", pill: "degraded", blink: false };
     if (!cameraOk) return { level: "warn", label: "视频异常", pill: "warn", blink: false };
     const risk = sim.latest("risk");
@@ -109,6 +125,17 @@ function systemStatus(sim) {
 }
 
 /* ---------- 视频面（real MJPEG / mock 占位） ---------- */
+const StableVideoImg = React.memo(function StableVideoImg({ src, onError }) {
+  return (
+    <img
+      src={src}
+      alt="CAM-01 实时流"
+      style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+      onError={onError}
+    />
+  );
+}, (prev, next) => prev.src === next.src);
+
 function VideoSurface({ sim }) {
   const isReal = sim.mode === "real";
   const risk = sim.latest("risk");
@@ -130,8 +157,19 @@ function VideoSurface({ sim }) {
   // real 模式状态判断
   const dev = sim.device;
   const deviceOnline = isReal ? (dev && dev.online) : (sim.scenario !== "offline");
-  const cameraOk = isReal ? (sim.videoOnline && sim.cameraStatus === "online") : deviceOnline;
-  const videoSrc = isReal && deviceOnline ? `/api/video/stream?device_id=${sim._realDeviceId || "edge-opi5-001"}` : null;
+  const cameraStatus = isReal ? sim.cameraStatus : (sim.scenario === "offline" ? "offline" : "mock");
+  const videoMode = isReal ? (dev && dev.video_mode) : (sim.scenario === "offline" ? "offline" : "mock");
+  const cameraOk = isReal ? (sim.videoOnline && (cameraStatus === "online" || cameraStatus === "mock")) : deviceOnline;
+  const isMockCam = cameraStatus === "mock" || videoMode === "mock";
+  const isRealCam = cameraStatus === "online" && videoMode === "real";
+  const videoSrc = isReal && deviceOnline && cameraOk
+    ? `/api/video/stream?device_id=${sim._realDeviceId || "edge-opi5-001"}`
+    : null;
+
+  // Clear imgError when device_id or videoSrc changes
+  React.useEffect(() => {
+    setImgError(false);
+  }, [sim._realDeviceId, videoSrc]);
 
   const showNoSignal = !deviceOnline || (isReal && !cameraOk);
   const showMockPlaceholder = !isReal && sim.scenario !== "offline";
@@ -140,12 +178,7 @@ function VideoSurface({ sim }) {
     <div className="video-wrap" style={{ aspectRatio: "16 / 9" }}>
       {/* 真实模式：MJPEG 流 */}
       {isReal && deviceOnline && cameraOk && !imgError && (
-        <img
-          src={videoSrc}
-          alt="CAM-01 实时流"
-          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-          onError={() => setImgError(true)}
-        />
+        <StableVideoImg src={videoSrc} onError={() => setImgError(true)} />
       )}
 
       {/* mock 模式：image-slot 占位 */}
@@ -198,6 +231,8 @@ function VideoSurface({ sim }) {
             </span>
             {isReal && <span className="hud-chip">{cameraOk && !imgError ? "MJPEG" : "断流"}</span>}
             {!isReal && <span className="hud-chip">25 FPS · MJPEG 1280×720 · mock</span>}
+            {isReal && isMockCam && <span className="hud-chip" style={{ color: "var(--warn)", fontWeight: 600 }}>MOCK VIDEO</span>}
+            {isReal && isRealCam && <span className="hud-chip" style={{ color: "var(--ok)", fontWeight: 600 }}>REAL CAMERA</span>}
           </div>
           <span className="hud-chip">{clock}</span>
         </div>
@@ -206,8 +241,11 @@ function VideoSurface({ sim }) {
             <span className="dot" style={{ background: riskColor(lvl) }}></span>
             risk {risk == null ? "—" : risk.toFixed(1)}/10
           </span>
-          {isReal && (
+          {isReal && isRealCam && (
             <span className="hud-chip" style={{ fontSize: 9, color: "var(--ok)" }}>REAL</span>
+          )}
+          {isReal && isMockCam && (
+            <span className="hud-chip" style={{ fontSize: 9, color: "var(--warn)" }}>MOCK</span>
           )}
         </div>
       </div>
